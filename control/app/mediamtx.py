@@ -17,6 +17,19 @@ class MediaMTX:
         """Turn copy-only recording on/off for a path at runtime."""
         await self._client.patch(f"{API}/v3/config/paths/patch/{path}", json={"record": on})
 
+    async def add_path(self, name: str) -> None:
+        """Create a path (idempotent enough — ignore 'already exists')."""
+        try:
+            await self._client.post(f"{API}/v3/config/paths/add/{name}", json={"record": False})
+        except Exception:
+            pass
+
+    async def delete_path(self, name: str) -> None:
+        try:
+            await self._client.delete(f"{API}/v3/config/paths/delete/{name}")
+        except Exception:
+            pass
+
     async def ready_paths(self) -> dict:
         """Map of path name -> whether a publisher is currently live."""
         try:

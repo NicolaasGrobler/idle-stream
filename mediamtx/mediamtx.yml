@@ -43,7 +43,6 @@ pathDefaults:
   recordSegmentDuration: 2h   # one file per service (sermons run ~45 min)
   recordDeleteAfter: 0s       # never auto-delete (MediaMTX default 1d would erase recordings)
 
-paths:
-  cam1:
-  cam2:
-  cam3:
+# Camera paths are managed at runtime by the control service (from
+# data/cameras.json) via the MediaMTX API — none are pre-declared here.
+paths: {}

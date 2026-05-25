@@ -12,6 +12,9 @@ recordings/
 # Runtime logs
 logs/
 
+# Operator's persisted camera config (environment-specific)
+data/
+
 # Node
 node_modules/
 dist/

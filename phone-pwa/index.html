@@ -189,7 +189,7 @@
         $('rec').style.display = msg.recording ? 'flex' : 'none';
       } else if (msg.type === 'assigned') {
         assignedSlot = msg.slot;
-        $('slot').textContent = assignedSlot ? assignedSlot.toUpperCase() : '—';
+        $('slot').textContent = assignedSlot ? (msg.label || assignedSlot) : '—';
         $('slot').className = 'big-slot ' + (assignedSlot ? 'ok' : 'muted');
         if (!assignedSlot && publishing) stopPublish();
         if (!publishing) setBadge($('status'), assignedSlot ? 'muted' : 'muted', assignedSlot ? 'standby' : 'waiting for operator');

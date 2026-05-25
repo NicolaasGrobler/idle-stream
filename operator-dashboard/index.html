@@ -10,22 +10,28 @@
     html, body { margin: 0; height: 100%; background: #0a0a0a; color: #e8e8e8;
       font: 14px/1.4 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
     body { display: flex; flex-direction: column; }
-    header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid #222; flex-wrap: wrap; }
+    header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #222; flex-wrap: wrap; }
     header h1 { margin: 0; font-size: 15px; font-weight: 600; }
     .spacer { flex: 1; }
-    button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #333; background: #161616; color: #e8e8e8; font-weight: 600; }
-    button:disabled { opacity: 0.4; }
+    button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #333; background: #161616; color: #e8e8e8; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.4; cursor: default; }
     button.go { background: #16a34a; border-color: #16a34a; color: #fff; }
     button.rec { background: #dc2626; border-color: #dc2626; color: #fff; }
     button.stop { background: #2a2a2a; }
+    button.sm { padding: 5px 9px; font-size: 12px; }
+    .layout { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+    .layout select { font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
     main { flex: 1; display: flex; min-height: 0; }
-    #side { width: 300px; border-right: 1px solid #222; padding: 12px; overflow: auto; }
-    #side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 4px 0 10px; }
-    .phone { background: #141414; border: 1px solid #222; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+    #side { width: 320px; border-right: 1px solid #222; padding: 12px; overflow: auto; }
+    #side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 4px 0 10px; display: flex; align-items: center; }
+    .card { background: #141414; border: 1px solid #222; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+    .camrow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .camrow .cid { font-size: 11px; color: #777; width: 42px; }
+    .camrow input { flex: 1; font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
     .phone .name { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-    .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; margin-bottom: 6px; }
-    .empty { color: #666; font-size: 13px; padding: 8px 0; }
-    #grid { flex: 1; display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-content: start; min-height: 0; }
+    .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
+    .empty { color: #666; font-size: 13px; padding: 6px 0; }
+    #grid { flex: 1; display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-content: start; min-height: 0; overflow: auto; }
     .tile { position: relative; background: #000; border: 1px solid #222; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; }
     .tile video { width: 100%; height: 100%; object-fit: cover; background: #000; }
     .tile .label { position: absolute; top: 8px; left: 10px; font-weight: 600; font-size: 13px; padding: 2px 8px; background: rgba(0,0,0,0.55); border-radius: 6px; }
@@ -44,8 +50,16 @@
   <header>
     <h1>Operator</h1>
     <span id="conn" class="badge muted">connecting…</span>
-    <span id="live" class="badge muted">0 / 3 live</span>
+    <span id="live" class="badge muted">0 live</span>
     <span id="recstate" class="badge muted">not recording</span>
+    <label class="layout">Layout
+      <select id="cols">
+        <option value="auto">Auto</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+      </select>
+    </label>
     <div class="spacer"></div>
     <button id="previewAll" class="go">Start Preview (all)</button>
     <button id="stopAll" class="stop">Stop Preview</button>
@@ -55,17 +69,21 @@
 
   <main>
     <div id="side">
+      <h2>Cameras <span class="spacer"></span><button id="addCam" class="sm">+ Add</button></h2>
+      <div id="cameras" class="card"></div>
+
       <h2>Connected phones</h2>
       <div id="phones"></div>
-      <div id="noPhones" class="empty">No phones connected. Open the phone page, enter a name, and tap Join.</div>
+      <div id="noPhones" class="empty">No phones connected. Open the phone page, enter a name, tap Join.</div>
     </div>
     <div id="grid"></div>
   </main>
 
   <script>
-    const SLOTS = ['cam1', 'cam2', 'cam3'];
-    const LABELS = { cam1: 'Cam 1 · Wide', cam2: 'Cam 2 · Pulpit', cam3: 'Cam 3 · Side' };
-    let lastState = { phones: [], slots: {}, recording: false, recordingStartedAt: null };
+    let lastState = { cameras: [], phones: [], slots: {}, recording: false, recordingStartedAt: null };
+    const $ = (id) => document.getElementById(id);
+    const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
+    const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
     // ---------- Control WebSocket ----------
     let ws = null, wsDelay = 1000;
@@ -73,45 +91,58 @@
       ws = new WebSocket(`wss://${location.host}/ws/operator`);
       ws.onopen = () => { wsDelay = 1000; setBadge($('conn'), 'ok', 'connected'); };
       ws.onclose = () => { setBadge($('conn'), 'bad', 'reconnecting…'); setTimeout(connectWS, wsDelay); wsDelay = Math.min(wsDelay * 2, 30000); };
-      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); } };
+      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); syncGrid(); } };
     }
     const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
-    const $ = (id) => document.getElementById(id);
-    const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
-
-    // ---------- Control panel rendering ----------
+    // ---------- Control panel ----------
     function renderControl() {
+      const cams = lastState.cameras || [];
+
+      // Camera management
+      const cbox = $('cameras');
+      cbox.innerHTML = cams.length ? '' : '<div class="empty">No cameras. Add one.</div>';
+      for (const c of cams) {
+        const row = document.createElement('div');
+        row.className = 'camrow';
+        row.innerHTML = `<span class="cid">${c.id}</span>
+          <input value="${escapeHtml(c.label)}" />
+          <button class="sm stop" title="Remove">×</button>`;
+        const input = row.querySelector('input');
+        const commit = () => { const v = input.value.trim(); if (v && v !== c.label) send({ type: 'renameCamera', id: c.id, label: v }); };
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+        row.querySelector('button').addEventListener('click', () => {
+          if (confirm(`Remove ${c.label} (${c.id})?`)) send({ type: 'removeCamera', id: c.id });
+        });
+        cbox.appendChild(row);
+      }
+
+      // Phone roster
       const phones = lastState.phones || [];
       $('noPhones').style.display = phones.length ? 'none' : 'block';
       const host = $('phones');
       host.innerHTML = '';
+      const taken = lastState.slots || {};
       for (const p of phones) {
         const div = document.createElement('div');
-        div.className = 'phone';
-        const taken = lastState.slots || {};
-        const opts = ['<option value="">Unassigned</option>'].concat(SLOTS.map((s) => {
-          const ownedByOther = taken[s] && taken[s] !== p.id;
-          const sel = p.slot === s ? ' selected' : '';
-          const dis = ownedByOther ? ' disabled' : '';
-          return `<option value="${s}"${sel}${dis}>${LABELS[s]}${ownedByOther ? ' (taken)' : ''}</option>`;
+        div.className = 'card phone';
+        const opts = ['<option value="">Unassigned</option>'].concat(cams.map((c) => {
+          const otherOwner = taken[c.id] && taken[c.id] !== p.id;
+          return `<option value="${c.id}"${p.slot === c.id ? ' selected' : ''}${otherOwner ? ' disabled' : ''}>${escapeHtml(c.label)}${otherOwner ? ' (taken)' : ''}</option>`;
         })).join('');
-        div.innerHTML = `
-          <div class="name">${escapeHtml(p.name)}
-            <span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span>
-          </div>
-          <select data-pid="${p.id}">${opts}</select>`;
-        host.appendChild(div);
+        div.innerHTML = `<div class="name">${escapeHtml(p.name)}
+          <span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span></div>
+          <select>${opts}</select>`;
         div.querySelector('select').addEventListener('change', (e) => {
-          const slot = e.target.value;
-          if (slot) send({ type: 'assign', phoneId: p.id, slot });
+          if (e.target.value) send({ type: 'assign', phoneId: p.id, slot: e.target.value });
           else send({ type: 'unassign', phoneId: p.id });
         });
+        host.appendChild(div);
       }
 
       const liveCount = phones.filter((p) => p.publishing).length;
-      setBadge($('live'), liveCount ? 'ok' : 'muted', `${liveCount} / ${SLOTS.length} live`);
-
+      setBadge($('live'), liveCount ? 'ok' : 'muted', `${liveCount} live`);
       if (lastState.recording) {
         $('recstate').innerHTML = `<span class="recdot"></span> REC ${fmtElapsed()}`;
         $('recstate').className = 'badge bad';
@@ -121,7 +152,6 @@
         $('recBtn').disabled = liveCount === 0; $('stopRecBtn').disabled = true;
       }
     }
-
     function fmtElapsed() {
       if (!lastState.recordingStartedAt) return '';
       const s = Math.max(0, Math.floor(Date.now() / 1000 - lastState.recordingStartedAt));
@@ -129,58 +159,78 @@
     }
     setInterval(() => { if (lastState.recording) renderControl(); }, 1000);
 
-    function escapeHtml(s) { return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-
+    $('addCam').addEventListener('click', () => { const l = prompt('Camera name (e.g. Balcony):'); if (l && l.trim()) send({ type: 'addCamera', label: l.trim() }); });
     $('previewAll').addEventListener('click', () => send({ type: 'startPreview' }));
     $('stopAll').addEventListener('click', () => send({ type: 'stopPreview' }));
     $('recBtn').addEventListener('click', () => send({ type: 'startRecording' }));
     $('stopRecBtn').addEventListener('click', () => send({ type: 'stopRecording' }));
 
-    // ---------- WHEP multiview (unchanged behaviour) ----------
+    // ---------- WHEP multiview (dynamic tiles) ----------
     const tiles = {};
     const grid = $('grid');
-    for (const cam of SLOTS) {
-      const el = document.createElement('div');
-      el.className = 'tile';
-      el.innerHTML = `<video autoplay playsinline muted></video><div class="offline-overlay">offline</div>
-        <span class="label">${LABELS[cam]}</span><span class="state badge muted">offline</span><span class="stats"></span>`;
-      grid.appendChild(el);
-      tiles[cam] = { root: el, video: el.querySelector('video'), overlay: el.querySelector('.offline-overlay'),
-        state: el.querySelector('.state'), stats: el.querySelector('.stats'), pc: null, lastBytes: 0, lastTs: 0 };
+
+    // Grid column layout (Auto / fixed N per row), remembered across sessions.
+    const colsSel = $('cols');
+    function applyCols(v) {
+      grid.style.gridTemplateColumns = v === 'auto' ? 'repeat(auto-fit, minmax(300px, 1fr))' : `repeat(${v}, 1fr)`;
     }
-    function setTile(cam, cls, text, overlay) { const t = tiles[cam]; t.state.className = 'state badge ' + cls; t.state.textContent = text; t.overlay.style.display = overlay ? 'flex' : 'none'; }
+    const savedCols = localStorage.getItem('gridCols') || 'auto';
+    colsSel.value = savedCols;
+    applyCols(savedCols);
+    colsSel.addEventListener('change', () => { localStorage.setItem('gridCols', colsSel.value); applyCols(colsSel.value); });
+
+    function syncGrid() {
+      const cams = lastState.cameras || [];
+      const ids = new Set(cams.map((c) => c.id));
+      for (const id of Object.keys(tiles)) {            // remove tiles for deleted cameras
+        if (!ids.has(id)) { teardown(id); tiles[id].root.remove(); delete tiles[id]; }
+      }
+      for (const c of cams) {
+        if (!tiles[c.id]) {                              // create tile for new camera
+          const el = document.createElement('div');
+          el.className = 'tile';
+          el.innerHTML = `<video autoplay playsinline muted></video><div class="offline-overlay">offline</div>
+            <span class="label"></span><span class="state badge muted">offline</span><span class="stats"></span>`;
+          grid.appendChild(el);
+          tiles[c.id] = { root: el, video: el.querySelector('video'), overlay: el.querySelector('.offline-overlay'),
+            state: el.querySelector('.state'), stats: el.querySelector('.stats'), label: el.querySelector('.label'), pc: null, lastBytes: 0, lastTs: 0 };
+        }
+        tiles[c.id].label.textContent = `${c.label} · ${c.id}`;
+      }
+    }
+    function setTile(id, cls, text, overlay) { const t = tiles[id]; if (!t) return; t.state.className = 'state badge ' + cls; t.state.textContent = text; t.overlay.style.display = overlay ? 'flex' : 'none'; }
     function waitIce(pc) { return new Promise((r) => { if (pc.iceGatheringState === 'complete') return r(); const f = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', f); r(); } }; pc.addEventListener('icegatheringstatechange', f); setTimeout(r, 2000); }); }
 
-    async function subscribe(cam) {
-      const t = tiles[cam];
-      setTile(cam, 'warn', 'connecting…', true);
+    async function subscribe(id) {
+      const t = tiles[id]; if (!t) return;
+      setTile(id, 'warn', 'connecting…', true);
       const pc = new RTCPeerConnection({ iceServers: [] });
       t.pc = pc;
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.addTransceiver('audio', { direction: 'recvonly' });
       pc.ontrack = (e) => { t.video.srcObject = e.streams[0]; };
-      pc.onconnectionstatechange = () => { const s = pc.connectionState; if (s === 'connected') setTile(cam, 'ok', 'live', false); else if (s === 'failed' || s === 'disconnected') setTile(cam, 'bad', s, false); };
+      pc.onconnectionstatechange = () => { const s = pc.connectionState; if (s === 'connected') setTile(id, 'ok', 'live', false); else if (s === 'failed' || s === 'disconnected') setTile(id, 'bad', s, false); };
       try {
         await pc.setLocalDescription(await pc.createOffer());
         await waitIce(pc);
-        const res = await fetch(`/${cam}/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
+        const res = await fetch(`/${id}/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
         if (!res.ok) throw new Error('WHEP ' + res.status);
         await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
-      } catch (e) { teardown(cam); setTile(cam, 'muted', 'offline', true); }
+      } catch (e) { teardown(id); setTile(id, 'muted', 'offline', true); }
     }
-    function teardown(cam) { const t = tiles[cam]; if (t.pc) { try { t.pc.close(); } catch {} t.pc = null; } t.video.srcObject = null; t.lastBytes = 0; t.lastTs = 0; t.stats.textContent = ''; }
+    function teardown(id) { const t = tiles[id]; if (!t) return; if (t.pc) { try { t.pc.close(); } catch {} t.pc = null; } t.video.srcObject = null; t.lastBytes = 0; t.lastTs = 0; t.stats.textContent = ''; }
     const isLive = (pc) => pc && ['new', 'connecting', 'connected', 'checking'].includes(pc.connectionState);
 
     async function pollPaths() {
       let ready = {};
       try { const d = await (await fetch('/paths-status', { cache: 'no-store' })).json(); for (const i of (d.items || [])) ready[i.name] = i.ready; } catch {}
-      for (const cam of SLOTS) {
-        if (ready[cam] && !isLive(tiles[cam].pc)) { teardown(cam); subscribe(cam); }
-        if (!ready[cam] && tiles[cam].pc) { teardown(cam); setTile(cam, 'muted', 'offline', true); }
+      for (const id of Object.keys(tiles)) {
+        if (ready[id] && !isLive(tiles[id].pc)) { teardown(id); subscribe(id); }
+        if (!ready[id] && tiles[id].pc) { teardown(id); setTile(id, 'muted', 'offline', true); }
       }
     }
     setInterval(async () => {
-      for (const cam of SLOTS) { const t = tiles[cam]; if (!t.pc || t.pc.connectionState !== 'connected') continue;
+      for (const id of Object.keys(tiles)) { const t = tiles[id]; if (!t.pc || t.pc.connectionState !== 'connected') continue;
         (await t.pc.getStats()).forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') { if (t.lastTs) t.stats.textContent = `${Math.round(((r.bytesReceived - t.lastBytes) * 8) / (r.timestamp - t.lastTs))} kbps`; t.lastBytes = r.bytesReceived; t.lastTs = r.timestamp; } }); }
     }, 1000);
 

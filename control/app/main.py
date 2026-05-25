@@ -1,19 +1,22 @@
 """Control service: coordinates phones and the operator dashboard.
 
-Phones connect (armed) and wait. The operator assigns each phone to a camera
-slot, starts the preview (phones begin publishing via WHIP), then starts/stops
-recording. Everything runs over two WebSocket endpoints, proxied same-origin by
-the dev-server so the browser/phones only ever see the trusted :8443/:8444 origin.
+Phones connect (armed) and wait. The operator manages the camera list (add /
+rename / remove), assigns each phone to a camera, starts the preview (phones
+begin publishing via WHIP), then starts/stops recording. Two WebSocket
+endpoints, proxied same-origin by the dev-server so phones/browser only ever
+see the trusted origin. Cameras are persisted to data/cameras.json.
 """
 import asyncio
 import json
 import time
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from .state import SessionState, Phone, SLOTS
+from . import cameras as cameras_store
+from .state import SessionState, Phone, Camera
 from .mediamtx import MediaMTX
 
 state = SessionState()
@@ -21,6 +24,10 @@ mtx = MediaMTX()
 
 operators: set[WebSocket] = set()
 phone_sockets: dict[str, WebSocket] = {}
+
+
+def persist_cameras() -> None:
+    cameras_store.save(state.cameras)
 
 
 async def broadcast_state() -> None:
@@ -41,16 +48,11 @@ async def send_phone(phone_id: str, payload: dict) -> None:
             pass
 
 
+async def assigned_msg(slot) -> dict:
+    return {"type": "assigned", "slot": slot, "label": state.label_for(slot) if slot else None}
+
+
 # ----- Phone endpoint -------------------------------------------------------
-async def handle_phone_message(phone_id: str, msg: dict) -> None:
-    t = msg.get("type")
-    if t == "status":
-        p = state.phones.get(phone_id)
-        if p:
-            p.publishing = bool(msg.get("publishing"))
-            await broadcast_state()
-
-
 async def ws_phone(ws: WebSocket) -> None:
     await ws.accept()
     phone_id: str | None = None
@@ -63,8 +65,11 @@ async def ws_phone(ws: WebSocket) -> None:
                 state.phones[phone_id] = Phone(id=phone_id, name=(msg.get("name") or f"Phone {phone_id}").strip())
                 await ws.send_text(json.dumps({"type": "registered", "phoneId": phone_id, "recording": state.recording}))
                 await broadcast_state()
-            elif phone_id is not None:
-                await handle_phone_message(phone_id, msg)
+            elif phone_id is not None and msg.get("type") == "status":
+                p = state.phones.get(phone_id)
+                if p:
+                    p.publishing = bool(msg.get("publishing"))
+                    await broadcast_state()
     except WebSocketDisconnect:
         pass
     except Exception:
@@ -80,27 +85,64 @@ async def ws_phone(ws: WebSocket) -> None:
 async def handle_operator_message(msg: dict) -> None:
     t = msg.get("type")
 
-    if t == "assign":
-        pid, slot = msg.get("phoneId"), msg.get("slot")
-        if pid in state.phones and slot in SLOTS:
-            # one phone per slot: evict whoever holds it
+    # ---- camera management ----
+    if t == "addCamera":
+        label = (msg.get("label") or "").strip() or f"Camera {len(state.cameras) + 1}"
+        cam_id = state.next_camera_id()
+        state.cameras.append(Camera(id=cam_id, label=label))
+        await mtx.add_path(cam_id)
+        persist_cameras()
+        await broadcast_state()
+
+    elif t == "renameCamera":
+        cid, label = msg.get("id"), (msg.get("label") or "").strip()
+        if label:
+            for c in state.cameras:
+                if c.id == cid:
+                    c.label = label
+            persist_cameras()
+            # let an assigned phone update its displayed label
+            owner = state.slot_owner(cid)
+            if owner:
+                await send_phone(owner, await assigned_msg(cid))
+            await broadcast_state()
+
+    elif t == "removeCamera":
+        cid = msg.get("id")
+        if cid in state.camera_ids():
+            state.cameras = [c for c in state.cameras if c.id != cid]
             for p in state.phones.values():
+                if p.slot == cid:
+                    p.slot = None
+                    await send_phone(p.id, await assigned_msg(None))
+            if state.recording:
+                await mtx.set_record(cid, False)
+            await mtx.delete_path(cid)
+            persist_cameras()
+            await broadcast_state()
+
+    # ---- slot assignment ----
+    elif t == "assign":
+        pid, slot = msg.get("phoneId"), msg.get("slot")
+        if pid in state.phones and slot in state.camera_ids():
+            for p in state.phones.values():       # one phone per slot: evict current holder
                 if p.slot == slot and p.id != pid:
                     p.slot = None
-                    await send_phone(p.id, {"type": "assigned", "slot": None})
+                    await send_phone(p.id, await assigned_msg(None))
             state.phones[pid].slot = slot
-            await send_phone(pid, {"type": "assigned", "slot": slot})
+            await send_phone(pid, await assigned_msg(slot))
             await broadcast_state()
 
     elif t == "unassign":
         pid = msg.get("phoneId")
         if pid in state.phones:
             state.phones[pid].slot = None
-            await send_phone(pid, {"type": "assigned", "slot": None})
+            await send_phone(pid, await assigned_msg(None))
             await broadcast_state()
 
+    # ---- preview / record ----
     elif t == "startPreview":
-        scope = msg.get("phoneId")  # None => all assigned phones
+        scope = msg.get("phoneId")
         for p in state.phones.values():
             if p.slot and (scope is None or p.id == scope):
                 await send_phone(p.id, {"type": "command", "action": "publish", "slot": p.slot})
@@ -112,8 +154,6 @@ async def handle_operator_message(msg: dict) -> None:
                 await send_phone(p.id, {"type": "command", "action": "stop"})
 
     elif t == "startRecording":
-        # Check MediaMTX's live state directly (the cached publishing flag can lag
-        # the reconcile loop if Record is clicked right after Start Preview).
         ready = await mtx.ready_paths()
         cams = sorted({p.slot for p in state.phones.values() if p.slot and ready.get(p.slot)})
         for cam in cams:
@@ -126,7 +166,7 @@ async def handle_operator_message(msg: dict) -> None:
             await broadcast_state()
 
     elif t == "stopRecording":
-        for cam in SLOTS:
+        for cam in state.camera_ids():
             await mtx.set_record(cam, False)
         state.recording = False
         state.recording_started_at = None
@@ -150,10 +190,13 @@ async def ws_operator(ws: WebSocket) -> None:
         operators.discard(ws)
 
 
-# ----- Reconcile publishing state from MediaMTX -----------------------------
+# ----- Reconcile with MediaMTX ----------------------------------------------
 async def reconcile_loop() -> None:
     while True:
         ready = await mtx.ready_paths()
+        for c in state.cameras:                    # survive a MediaMTX restart
+            if c.id not in ready:
+                await mtx.add_path(c.id)
         changed = False
         for p in state.phones.values():
             want = bool(p.slot and ready.get(p.slot))
@@ -167,6 +210,9 @@ async def reconcile_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    state.cameras = cameras_store.load()
+    for c in state.cameras:
+        await mtx.add_path(c.id)
     task = asyncio.create_task(reconcile_loop())
     try:
         yield
@@ -182,4 +228,4 @@ app.add_api_websocket_route("/ws/operator", ws_operator)
 
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "phones": len(state.phones), "recording": state.recording}
+    return {"ok": True, "cameras": len(state.cameras), "phones": len(state.phones), "recording": state.recording}
