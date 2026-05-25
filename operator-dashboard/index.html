@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Operator Dashboard</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0a0a0a; color: #e8e8e8;
+      font: 14px/1.4 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid #222; flex-wrap: wrap; }
+    header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+    .spacer { flex: 1; }
+    button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #333; background: #161616; color: #e8e8e8; font-weight: 600; }
+    button:disabled { opacity: 0.4; }
+    button.go { background: #16a34a; border-color: #16a34a; color: #fff; }
+    button.rec { background: #dc2626; border-color: #dc2626; color: #fff; }
+    button.stop { background: #2a2a2a; }
+    main { flex: 1; display: flex; min-height: 0; }
+    #side { width: 300px; border-right: 1px solid #222; padding: 12px; overflow: auto; }
+    #side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 4px 0 10px; }
+    .phone { background: #141414; border: 1px solid #222; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+    .phone .name { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; margin-bottom: 6px; }
+    .empty { color: #666; font-size: 13px; padding: 8px 0; }
+    #grid { flex: 1; display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-content: start; min-height: 0; }
+    .tile { position: relative; background: #000; border: 1px solid #222; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; }
+    .tile video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+    .tile .label { position: absolute; top: 8px; left: 10px; font-weight: 600; font-size: 13px; padding: 2px 8px; background: rgba(0,0,0,0.55); border-radius: 6px; }
+    .tile .state { position: absolute; bottom: 8px; left: 10px; }
+    .tile .stats { position: absolute; bottom: 8px; right: 10px; font-size: 11px; color: #aaa; padding: 2px 6px; background: rgba(0,0,0,0.5); border-radius: 6px; }
+    .tile .offline-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #555; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .ok { background: #052e16; color: #4ade80; }
+    .warn { background: #3a2e05; color: #fbbf24; }
+    .bad { background: #3b0a0a; color: #f87171; }
+    .muted { background: #1a1a1a; color: #888; }
+    .recdot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444; display: inline-block; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Operator</h1>
+    <span id="conn" class="badge muted">connecting…</span>
+    <span id="live" class="badge muted">0 / 3 live</span>
+    <span id="recstate" class="badge muted">not recording</span>
+    <div class="spacer"></div>
+    <button id="previewAll" class="go">Start Preview (all)</button>
+    <button id="stopAll" class="stop">Stop Preview</button>
+    <button id="recBtn" class="rec">● Record</button>
+    <button id="stopRecBtn" class="stop" disabled>Stop Recording</button>
+  </header>
+
+  <main>
+    <div id="side">
+      <h2>Connected phones</h2>
+      <div id="phones"></div>
+      <div id="noPhones" class="empty">No phones connected. Open the phone page, enter a name, and tap Join.</div>
+    </div>
+    <div id="grid"></div>
+  </main>
+
+  <script>
+    const SLOTS = ['cam1', 'cam2', 'cam3'];
+    const LABELS = { cam1: 'Cam 1 · Wide', cam2: 'Cam 2 · Pulpit', cam3: 'Cam 3 · Side' };
+    let lastState = { phones: [], slots: {}, recording: false, recordingStartedAt: null };
+
+    // ---------- Control WebSocket ----------
+    let ws = null, wsDelay = 1000;
+    function connectWS() {
+      ws = new WebSocket(`wss://${location.host}/ws/operator`);
+      ws.onopen = () => { wsDelay = 1000; setBadge($('conn'), 'ok', 'connected'); };
+      ws.onclose = () => { setBadge($('conn'), 'bad', 'reconnecting…'); setTimeout(connectWS, wsDelay); wsDelay = Math.min(wsDelay * 2, 30000); };
+      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); } };
+    }
+    const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+
+    const $ = (id) => document.getElementById(id);
+    const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
+
+    // ---------- Control panel rendering ----------
+    function renderControl() {
+      const phones = lastState.phones || [];
+      $('noPhones').style.display = phones.length ? 'none' : 'block';
+      const host = $('phones');
+      host.innerHTML = '';
+      for (const p of phones) {
+        const div = document.createElement('div');
+        div.className = 'phone';
+        const taken = lastState.slots || {};
+        const opts = ['<option value="">Unassigned</option>'].concat(SLOTS.map((s) => {
+          const ownedByOther = taken[s] && taken[s] !== p.id;
+          const sel = p.slot === s ? ' selected' : '';
+          const dis = ownedByOther ? ' disabled' : '';
+          return `<option value="${s}"${sel}${dis}>${LABELS[s]}${ownedByOther ? ' (taken)' : ''}</option>`;
+        })).join('');
+        div.innerHTML = `
+          <div class="name">${escapeHtml(p.name)}
+            <span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span>
+          </div>
+          <select data-pid="${p.id}">${opts}</select>`;
+        host.appendChild(div);
+        div.querySelector('select').addEventListener('change', (e) => {
+          const slot = e.target.value;
+          if (slot) send({ type: 'assign', phoneId: p.id, slot });
+          else send({ type: 'unassign', phoneId: p.id });
+        });
+      }
+
+      const liveCount = phones.filter((p) => p.publishing).length;
+      setBadge($('live'), liveCount ? 'ok' : 'muted', `${liveCount} / ${SLOTS.length} live`);
+
+      if (lastState.recording) {
+        $('recstate').innerHTML = `<span class="recdot"></span> REC ${fmtElapsed()}`;
+        $('recstate').className = 'badge bad';
+        $('recBtn').disabled = true; $('stopRecBtn').disabled = false;
+      } else {
+        setBadge($('recstate'), 'muted', 'not recording');
+        $('recBtn').disabled = liveCount === 0; $('stopRecBtn').disabled = true;
+      }
+    }
+
+    function fmtElapsed() {
+      if (!lastState.recordingStartedAt) return '';
+      const s = Math.max(0, Math.floor(Date.now() / 1000 - lastState.recordingStartedAt));
+      return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    }
+    setInterval(() => { if (lastState.recording) renderControl(); }, 1000);
+
+    function escapeHtml(s) { return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+    $('previewAll').addEventListener('click', () => send({ type: 'startPreview' }));
+    $('stopAll').addEventListener('click', () => send({ type: 'stopPreview' }));
+    $('recBtn').addEventListener('click', () => send({ type: 'startRecording' }));
+    $('stopRecBtn').addEventListener('click', () => send({ type: 'stopRecording' }));
+
+    // ---------- WHEP multiview (unchanged behaviour) ----------
+    const tiles = {};
+    const grid = $('grid');
+    for (const cam of SLOTS) {
+      const el = document.createElement('div');
+      el.className = 'tile';
+      el.innerHTML = `<video autoplay playsinline muted></video><div class="offline-overlay">offline</div>
+        <span class="label">${LABELS[cam]}</span><span class="state badge muted">offline</span><span class="stats"></span>`;
+      grid.appendChild(el);
+      tiles[cam] = { root: el, video: el.querySelector('video'), overlay: el.querySelector('.offline-overlay'),
+        state: el.querySelector('.state'), stats: el.querySelector('.stats'), pc: null, lastBytes: 0, lastTs: 0 };
+    }
+    function setTile(cam, cls, text, overlay) { const t = tiles[cam]; t.state.className = 'state badge ' + cls; t.state.textContent = text; t.overlay.style.display = overlay ? 'flex' : 'none'; }
+    function waitIce(pc) { return new Promise((r) => { if (pc.iceGatheringState === 'complete') return r(); const f = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', f); r(); } }; pc.addEventListener('icegatheringstatechange', f); setTimeout(r, 2000); }); }
+
+    async function subscribe(cam) {
+      const t = tiles[cam];
+      setTile(cam, 'warn', 'connecting…', true);
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      t.pc = pc;
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      pc.ontrack = (e) => { t.video.srcObject = e.streams[0]; };
+      pc.onconnectionstatechange = () => { const s = pc.connectionState; if (s === 'connected') setTile(cam, 'ok', 'live', false); else if (s === 'failed' || s === 'disconnected') setTile(cam, 'bad', s, false); };
+      try {
+        await pc.setLocalDescription(await pc.createOffer());
+        await waitIce(pc);
+        const res = await fetch(`/${cam}/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
+        if (!res.ok) throw new Error('WHEP ' + res.status);
+        await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
+      } catch (e) { teardown(cam); setTile(cam, 'muted', 'offline', true); }
+    }
+    function teardown(cam) { const t = tiles[cam]; if (t.pc) { try { t.pc.close(); } catch {} t.pc = null; } t.video.srcObject = null; t.lastBytes = 0; t.lastTs = 0; t.stats.textContent = ''; }
+    const isLive = (pc) => pc && ['new', 'connecting', 'connected', 'checking'].includes(pc.connectionState);
+
+    async function pollPaths() {
+      let ready = {};
+      try { const d = await (await fetch('/paths-status', { cache: 'no-store' })).json(); for (const i of (d.items || [])) ready[i.name] = i.ready; } catch {}
+      for (const cam of SLOTS) {
+        if (ready[cam] && !isLive(tiles[cam].pc)) { teardown(cam); subscribe(cam); }
+        if (!ready[cam] && tiles[cam].pc) { teardown(cam); setTile(cam, 'muted', 'offline', true); }
+      }
+    }
+    setInterval(async () => {
+      for (const cam of SLOTS) { const t = tiles[cam]; if (!t.pc || t.pc.connectionState !== 'connected') continue;
+        (await t.pc.getStats()).forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') { if (t.lastTs) t.stats.textContent = `${Math.round(((r.bytesReceived - t.lastBytes) * 8) / (r.timestamp - t.lastTs))} kbps`; t.lastBytes = r.bytesReceived; t.lastTs = r.timestamp; } }); }
+    }, 1000);
+
+    connectWS();
+    renderControl();
+    pollPaths();
+    setInterval(pollPaths, 2000);
+  </script>
+</body>
+</html>

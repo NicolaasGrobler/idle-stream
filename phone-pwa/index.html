@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Sermon Cam</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0a0a0a; color: #e8e8e8;
+      font: 16px/1.4 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 12px 16px; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 10px; }
+    header h1 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; }
+    #video { flex: 1; width: 100%; object-fit: cover; background: #000; min-height: 0; }
+    #panel { padding: 14px 16px; border-top: 1px solid #222; }
+    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    input, select, button { font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid #333;
+      background: #161616; color: #e8e8e8; }
+    input { flex: 1; min-width: 160px; }
+    button.primary { background: #16a34a; border-color: #16a34a; color: #fff; font-weight: 600; }
+    button:disabled { opacity: 0.4; }
+    .badge { padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+    .ok { background: #052e16; color: #4ade80; }
+    .warn { background: #3a2e05; color: #fbbf24; }
+    .bad { background: #3b0a0a; color: #f87171; }
+    .muted { background: #1a1a1a; color: #888; }
+    .rec { display: none; align-items: center; gap: 6px; color: #f87171; font-weight: 700; }
+    .rec .dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    .big-slot { font-size: 28px; font-weight: 800; letter-spacing: 0.02em; }
+    pre { margin: 8px 0 0; padding: 10px; background: #111; border: 1px solid #222; border-radius: 8px;
+      font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 22vh; overflow: auto; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sermon Cam</h1>
+    <span id="rec" class="rec"><span class="dot"></span>REC</span>
+    <span id="conn" class="badge muted">offline</span>
+  </header>
+
+  <video id="video" autoplay playsinline muted></video>
+
+  <div id="panel">
+    <!-- Join screen -->
+    <div id="join">
+      <div class="row">
+        <input id="name" placeholder="Phone name (e.g. Nicol's iPhone)" autocomplete="off" />
+      </div>
+      <div class="row">
+        <select id="facing">
+          <option value="environment" selected>Back camera</option>
+          <option value="user">Front camera</option>
+        </select>
+        <button id="joinBtn" class="primary">Join</button>
+      </div>
+    </div>
+
+    <!-- Armed / live screen -->
+    <div id="armed" class="hidden">
+      <div class="row">
+        <span>Assigned to:</span>
+        <span id="slot" class="big-slot muted">—</span>
+      </div>
+      <div class="row">
+        <span>Status:</span><span id="status" class="badge muted">waiting for operator</span>
+        <span id="bitrate" class="muted"></span>
+      </div>
+    </div>
+
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = (m) => { $('log').textContent = `[${new Date().toLocaleTimeString()}] ${m}\n` + $('log').textContent; };
+    const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
+
+    const MAX_VIDEO_BITRATE = 5_000_000;
+
+    let ws = null, stream = null, pc = null, statsTimer = null;
+    let assignedSlot = null, publishing = false, reconnectDelay = 1000;
+
+    // ----- Camera -----
+    async function acquireCamera() {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: $('facing').value, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      $('video').srcObject = stream;
+    }
+
+    // ----- WHIP publish -----
+    function preferH264(peer) {
+      if (!('setCodecPreferences' in RTCRtpTransceiver.prototype)) return;
+      for (const t of peer.getTransceivers()) {
+        if (!(t.sender && t.sender.track && t.sender.track.kind === 'video')) continue;
+        const caps = RTCRtpSender.getCapabilities('video');
+        if (!caps) continue;
+        const h264 = caps.codecs.filter((c) => /h264/i.test(c.mimeType));
+        const rest = caps.codecs.filter((c) => !/h264/i.test(c.mimeType));
+        if (h264.length) { try { t.setCodecPreferences([...h264, ...rest]); } catch {} }
+      }
+    }
+    function waitIce(peer) {
+      return new Promise((resolve) => {
+        if (peer.iceGatheringState === 'complete') return resolve();
+        const f = () => { if (peer.iceGatheringState === 'complete') { peer.removeEventListener('icegatheringstatechange', f); resolve(); } };
+        peer.addEventListener('icegatheringstatechange', f);
+        setTimeout(resolve, 2000);
+      });
+    }
+
+    async function startPublish(slot) {
+      if (publishing) return;
+      if (!stream) { log('No camera; cannot publish.'); return; }
+      setBadge($('status'), 'warn', 'connecting…');
+      pc = new RTCPeerConnection({ iceServers: [] });
+      pc.onconnectionstatechange = () => {
+        const s = pc.connectionState;
+        if (s === 'connected') { setBadge($('status'), 'ok', 'LIVE'); sendStatus(true); }
+        else if (s === 'failed' || s === 'disconnected') { setBadge($('status'), 'bad', s); sendStatus(false); }
+      };
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      preferH264(pc);
+      try {
+        await pc.setLocalDescription(await pc.createOffer());
+        await waitIce(pc);
+        const res = await fetch(`/${slot}/whip`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
+        if (!res.ok) throw new Error('WHIP ' + res.status);
+        await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
+        const v = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+        if (v) { const pr = v.getParameters(); if (!pr.encodings || !pr.encodings.length) pr.encodings = [{}]; pr.encodings[0].maxBitrate = MAX_VIDEO_BITRATE; try { await v.setParameters(pr); } catch {} }
+        publishing = true;
+        startStats();
+        log(`Publishing to ${slot}.`);
+      } catch (e) {
+        setBadge($('status'), 'bad', 'error');
+        log('Publish failed: ' + e.message);
+        stopPublish();
+      }
+    }
+
+    function stopPublish() {
+      if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+      if (pc) { try { pc.close(); } catch {} pc = null; }
+      publishing = false;
+      $('bitrate').textContent = '';
+      if (assignedSlot) setBadge($('status'), 'muted', 'standby'); else setBadge($('status'), 'muted', 'waiting for operator');
+      sendStatus(false);
+    }
+
+    function startStats() {
+      let lb = 0, lt = 0;
+      statsTimer = setInterval(async () => {
+        if (!pc) return;
+        (await pc.getStats()).forEach((r) => {
+          if (r.type === 'outbound-rtp' && r.kind === 'video') {
+            if (lt) $('bitrate').textContent = `· ${Math.round(((r.bytesSent - lb) * 8) / (r.timestamp - lt))} kbps`;
+            lb = r.bytesSent; lt = r.timestamp;
+          }
+        });
+      }, 1000);
+    }
+
+    // ----- Control WebSocket -----
+    function sendStatus(pub) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'status', publishing: pub })); }
+
+    function connectWS(name) {
+      ws = new WebSocket(`wss://${location.host}/ws/phone`);
+      ws.onopen = () => {
+        reconnectDelay = 1000;
+        setBadge($('conn'), 'ok', 'connected');
+        ws.send(JSON.stringify({ type: 'register', name }));
+        if (publishing) sendStatus(true);
+      };
+      ws.onclose = () => {
+        setBadge($('conn'), 'bad', 'reconnecting…');
+        setTimeout(() => connectWS(name), reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      };
+      ws.onmessage = (ev) => handleControl(JSON.parse(ev.data), name);
+    }
+
+    function handleControl(msg, name) {
+      if (msg.type === 'registered') {
+        log('Registered with operator.');
+        $('rec').style.display = msg.recording ? 'flex' : 'none';
+      } else if (msg.type === 'assigned') {
+        assignedSlot = msg.slot;
+        $('slot').textContent = assignedSlot ? assignedSlot.toUpperCase() : '—';
+        $('slot').className = 'big-slot ' + (assignedSlot ? 'ok' : 'muted');
+        if (!assignedSlot && publishing) stopPublish();
+        if (!publishing) setBadge($('status'), assignedSlot ? 'muted' : 'muted', assignedSlot ? 'standby' : 'waiting for operator');
+        log(assignedSlot ? `Assigned to ${assignedSlot}.` : 'Unassigned.');
+      } else if (msg.type === 'command') {
+        if (msg.action === 'publish') startPublish(msg.slot || assignedSlot);
+        else if (msg.action === 'stop') stopPublish();
+      } else if (msg.type === 'recording') {
+        $('rec').style.display = msg.on ? 'flex' : 'none';
+      }
+    }
+
+    // ----- Join -----
+    $('joinBtn').addEventListener('click', async () => {
+      const name = $('name').value.trim() || 'Phone';
+      $('joinBtn').disabled = true;
+      try {
+        await acquireCamera();
+        try { await (navigator.wakeLock && navigator.wakeLock.request('screen')); } catch {}
+        $('join').classList.add('hidden');
+        $('armed').classList.remove('hidden');
+        connectWS(name);
+      } catch (e) {
+        $('joinBtn').disabled = false;
+        log('Camera error: ' + (e.message || e.name));
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>M1 · Camera Publisher</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0a0a0a; color: #e8e8e8;
+      font: 15px/1.4 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 12px 16px; border-bottom: 1px solid #222; }
+    header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    #video { flex: 1; width: 100%; object-fit: cover; background: #000; min-height: 0; }
+    #panel { padding: 12px 16px; border-top: 1px solid #222; }
+    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    button, select { font: inherit; padding: 10px 14px; border-radius: 8px; border: 1px solid #333;
+      background: #161616; color: #e8e8e8; }
+    button.primary { background: #16a34a; border-color: #16a34a; color: #fff; font-weight: 600; }
+    button:disabled { opacity: 0.4; }
+    button:active { transform: scale(0.98); }
+    .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .ok { background: #052e16; color: #4ade80; }
+    .bad { background: #3b0a0a; color: #f87171; }
+    .warn { background: #3a2e05; color: #fbbf24; }
+    .muted { color: #888; }
+    pre { margin: 8px 0 0; padding: 10px; background: #111; border: 1px solid #222; border-radius: 8px;
+      font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 30vh; overflow: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Milestone 1 · Camera Publisher (WHIP)</h1>
+    <div class="row" style="margin-top:6px">
+      <span>Connection:</span><span id="conn" class="badge muted">idle</span>
+      <span>Video codec:</span><span id="codec" class="badge muted">—</span>
+    </div>
+  </header>
+
+  <video id="video" autoplay playsinline muted></video>
+
+  <div id="panel">
+    <div class="row">
+      <label>Camera:</label>
+      <select id="path">
+        <option value="cam1">cam1 — Wide</option>
+        <option value="cam2">cam2 — Pulpit</option>
+        <option value="cam3">cam3 — Side</option>
+      </select>
+      <select id="facing">
+        <option value="environment" selected>Back</option>
+        <option value="user">Front</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="start" class="primary">Start publishing</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <div class="row">
+      <span>Status:</span><span id="status" class="muted">idle</span>
+      <span id="bitrate" class="muted"></span>
+    </div>
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = (m) => { $('log').textContent = `[${new Date().toLocaleTimeString()}] ${m}\n` + $('log').textContent; };
+    const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
+
+    // WHIP endpoint is same-origin (this server reverse-proxies it to MediaMTX),
+    // so there's no CORS / cross-origin TLS — which iOS Safari blocks.
+    const whipBase = '';
+
+    // Target video bitrate. Phones default to ~2.5 Mbps, which smears on fast
+    // motion at 1080p. 5 Mbps gives noticeably cleaner motion. Raise toward
+    // 6–8 Mbps if the WiFi is strong; lower if the link is weak.
+    const MAX_VIDEO_BITRATE = 5_000_000;
+
+    let pc = null, stream = null, statsTimer = null;
+
+    // Reorder codec preferences so H.264 is offered first → MediaMTX records copy-only to MP4.
+    function preferH264(peer) {
+      if (!('setCodecPreferences' in RTCRtpTransceiver.prototype)) {
+        log('setCodecPreferences unsupported; codec will be negotiated by the browser default.');
+        return;
+      }
+      for (const t of peer.getTransceivers()) {
+        const kind = t.sender && t.sender.track && t.sender.track.kind;
+        if (kind !== 'video') continue;
+        const caps = RTCRtpSender.getCapabilities('video');
+        if (!caps) continue;
+        const h264 = caps.codecs.filter((c) => /h264/i.test(c.mimeType));
+        const rest = caps.codecs.filter((c) => !/h264/i.test(c.mimeType));
+        if (h264.length) { try { t.setCodecPreferences([...h264, ...rest]); } catch (e) { log('setCodecPreferences failed: ' + e.message); } }
+      }
+    }
+
+    function waitIceComplete(peer) {
+      return new Promise((resolve) => {
+        if (peer.iceGatheringState === 'complete') return resolve();
+        const check = () => {
+          if (peer.iceGatheringState === 'complete') {
+            peer.removeEventListener('icegatheringstatechange', check);
+            resolve();
+          }
+        };
+        peer.addEventListener('icegatheringstatechange', check);
+        setTimeout(resolve, 2000); // LAN host candidates gather almost instantly
+      });
+    }
+
+    async function start() {
+      const path = $('path').value;
+      $('start').disabled = true;
+      $('status').textContent = 'requesting camera…';
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: $('facing').value, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+        $('video').srcObject = stream;
+
+        pc = new RTCPeerConnection({ iceServers: [] }); // pure LAN, no STUN needed
+        pc.addEventListener('connectionstatechange', () => {
+          const s = pc.connectionState;
+          setBadge($('conn'), s === 'connected' ? 'ok' : (s === 'failed' || s === 'disconnected' ? 'bad' : 'warn'), s);
+          if (s === 'connected') $('status').textContent = 'publishing';
+        });
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        preferH264(pc);
+
+        $('status').textContent = 'negotiating…';
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await waitIceComplete(pc);
+
+        const res = await fetch(`${whipBase}/${path}/whip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp' },
+          body: pc.localDescription.sdp,
+        });
+        if (!res.ok) throw new Error(`WHIP POST ${res.status}: ${await res.text()}`);
+        const answer = await res.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+
+        // Raise the video bitrate target (default is ~2.5 Mbps → motion smearing).
+        const vsender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+        if (vsender) {
+          const params = vsender.getParameters();
+          if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+          params.encodings[0].maxBitrate = MAX_VIDEO_BITRATE;
+          try { await vsender.setParameters(params); log(`Set max video bitrate to ${MAX_VIDEO_BITRATE / 1e6} Mbps.`); }
+          catch (e) { log('setParameters failed: ' + e.message); }
+        }
+
+        // Report the negotiated video codec.
+        const m = /a=rtpmap:\d+ ([A-Za-z0-9]+)\/90000/.exec(answer);
+        const codec = m ? m[1] : '?';
+        setBadge($('codec'), /h264/i.test(codec) ? 'ok' : 'warn', codec + (/h264/i.test(codec) ? '' : ' (not H264!)'));
+        log(`Published to ${path}. Negotiated video codec: ${codec}.`);
+
+        $('stop').disabled = false;
+        startStats();
+      } catch (err) {
+        $('status').textContent = 'error';
+        setBadge($('conn'), 'bad', 'error');
+        log(`Failed: ${err.name || ''} ${err.message}`);
+        cleanup();
+        $('start').disabled = false;
+      }
+    }
+
+    function startStats() {
+      let lastBytes = 0, lastTs = 0;
+      statsTimer = setInterval(async () => {
+        if (!pc) return;
+        const stats = await pc.getStats();
+        stats.forEach((r) => {
+          if (r.type === 'outbound-rtp' && r.kind === 'video') {
+            const now = r.timestamp;
+            if (lastTs) {
+              const kbps = Math.round(((r.bytesSent - lastBytes) * 8) / (now - lastTs)); // bytes*8/ms = kbps
+              $('bitrate').textContent = `· ${kbps} kbps`;
+            }
+            lastBytes = r.bytesSent; lastTs = now;
+          }
+        });
+      }, 1000);
+    }
+
+    function cleanup() {
+      if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+      if (pc) { pc.close(); pc = null; }
+      if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+      $('video').srcObject = null;
+      $('bitrate').textContent = '';
+    }
+
+    function stop() {
+      cleanup();
+      setBadge($('conn'), 'muted', 'idle');
+      setBadge($('codec'), 'muted', '—');
+      $('status').textContent = 'stopped';
+      $('start').disabled = false;
+      $('stop').disabled = true;
+      log('Stopped.');
+    }
+
+    $('start').addEventListener('click', start);
+    $('stop').addEventListener('click', stop);
+  </script>
+</body>
+</html>

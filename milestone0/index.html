@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>M0 · Camera Access Test</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0a0a0a; color: #e8e8e8;
+      font: 15px/1.4 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 12px 16px; border-bottom: 1px solid #222; }
+    header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    #video { flex: 1; width: 100%; object-fit: cover; background: #000; min-height: 0; }
+    #panel { padding: 12px 16px; border-top: 1px solid #222; }
+    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    button, select { font: inherit; padding: 10px 14px; border-radius: 8px; border: 1px solid #333;
+      background: #161616; color: #e8e8e8; }
+    button.primary { background: #16a34a; border-color: #16a34a; color: #fff; font-weight: 600; }
+    button:active { transform: scale(0.98); }
+    .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .ok { background: #052e16; color: #4ade80; }
+    .bad { background: #3b0a0a; color: #f87171; }
+    .muted { color: #888; }
+    pre { margin: 8px 0 0; padding: 10px; background: #111; border: 1px solid #222; border-radius: 8px;
+      font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 30vh; overflow: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Milestone 0 · Camera Access Test</h1>
+    <div class="row" style="margin-top:6px">
+      <span>Secure context:</span><span id="secure" class="badge">…</span>
+      <span>mediaDevices:</span><span id="mediadev" class="badge">…</span>
+    </div>
+  </header>
+
+  <video id="video" autoplay playsinline muted></video>
+
+  <div id="panel">
+    <div class="row">
+      <button id="start" class="primary">Start camera</button>
+      <button id="stop" disabled>Stop</button>
+      <select id="facing">
+        <option value="environment" selected>Back camera</option>
+        <option value="user">Front camera</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>Status:</span><span id="status" class="muted">idle</span>
+    </div>
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = (msg) => { $('log').textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n` + $('log').textContent; };
+    const setBadge = (el, ok, text) => { el.textContent = text; el.className = 'badge ' + (ok ? 'ok' : 'bad'); };
+
+    // Report environment up front — this is the whole point of the gate.
+    const secure = window.isSecureContext;
+    setBadge($('secure'), secure, secure ? 'yes' : 'NO (insecure)');
+    const hasMD = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    setBadge($('mediadev'), hasMD, hasMD ? 'available' : 'undefined');
+    if (!secure) log('Not a secure context — getUserMedia will be blocked. Check TLS / cert trust on this device.');
+    if (!hasMD) log('navigator.mediaDevices is undefined. On iOS this means the cert is not trusted (the #1 failure mode).');
+
+    let stream = null;
+
+    async function start() {
+      $('status').textContent = 'requesting permission…';
+      try {
+        const facingMode = $('facing').value;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+        $('video').srcObject = stream;
+        $('start').disabled = true;
+        $('stop').disabled = false;
+        $('status').textContent = 'streaming';
+
+        const v = stream.getVideoTracks()[0];
+        const a = stream.getAudioTracks()[0];
+        const s = v ? v.getSettings() : {};
+        log(`OK. video=${v ? v.label : 'none'} ${s.width}x${s.height}@${s.frameRate}fps  audio=${a ? a.label : 'none'}`);
+      } catch (err) {
+        $('status').textContent = 'error';
+        log(`getUserMedia failed: ${err.name} — ${err.message}`);
+      }
+    }
+
+    function stop() {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      $('video').srcObject = null;
+      $('start').disabled = false;
+      $('stop').disabled = true;
+      $('status').textContent = 'stopped';
+    }
+
+    $('start').addEventListener('click', start);
+    $('stop').addEventListener('click', stop);
+  </script>
+</body>
+</html>
