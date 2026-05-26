@@ -16,6 +16,7 @@ import * as camerasStore from './cameras.mjs';
 import * as switchesStore from './switches.mjs';
 import * as recordingsStore from './recordings.mjs';
 import * as assignmentsStore from './assignments.mjs';
+import * as exportsStore from './exports.mjs';
 
 // Auto-stop a recording this many seconds after the last publisher drops (e.g.
 // the event ended). The grace window tolerates brief WiFi blips — a phone that
@@ -502,6 +503,34 @@ function handleHttp(svc, req, res) {
   }
   if (req.method === 'GET' && path === '/api/preflight') {
     sendJson(res, 200, recordingsStore.preflight());
+    return;
+  }
+  // ----- Session export (render the switch log to one MP4) -----
+  if ((req.method === 'GET' || req.method === 'HEAD') && path === '/api/export/download') {
+    const id = url.searchParams.get('id') ?? '';
+    if (!exportsStore.serveExport(id, req, res)) sendJson(res, 404, { error: 'not found' });
+    return;
+  }
+  if (req.method === 'POST' && path === '/api/export') {
+    const id = url.searchParams.get('id') ?? '';
+    const session = switchesStore.loadSessions().find((s) => s.sessionId === id);
+    if (!session) { sendJson(res, 404, { error: 'session not found' }); return; }
+    try {
+      const job = exportsStore.startExport(session);
+      sendJson(res, 202, { status: job.status, progress: job.progress, error: job.error || null });
+    } catch (e) {
+      sendJson(res, 400, { error: String(e.message || e) });
+    }
+    return;
+  }
+  if (req.method === 'GET' && path === '/api/export') {
+    const id = url.searchParams.get('id');
+    if (id) {
+      const job = exportsStore.getJob(id);
+      sendJson(res, 200, job ? { status: job.status, progress: job.progress, error: job.error || null, ready: job.status === 'done' } : { status: 'none' });
+    } else {
+      sendJson(res, 200, exportsStore.getAllJobs());
+    }
     return;
   }
   if (req.method === 'DELETE' && path === '/api/recordings/download') {

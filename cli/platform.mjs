@@ -15,6 +15,8 @@ export const paths = {
   logs: join(ROOT, 'logs'),
   mkcert: join(ROOT, 'tools', `mkcert${exe}`),
   mediamtx: join(ROOT, 'tools', `mediamtx${exe}`),
+  ffmpeg: join(ROOT, 'tools', `ffmpeg${exe}`),
+  ffprobe: join(ROOT, 'tools', `ffprobe${exe}`),
   mediamtxConfig: join(ROOT, 'mediamtx', 'mediamtx.yml'),
   mediamtxConfigGen: join(ROOT, 'mediamtx', 'mediamtx.gen.yml'),
   certIpFile: join(ROOT, 'certs', '.lan-ip'),

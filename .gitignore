@@ -9,6 +9,9 @@ tools/
 # Recordings
 recordings/
 
+# Rendered session exports (re-generated on demand)
+exports/
+
 # Backups (moved-out recordings + session logs)
 backups/
 

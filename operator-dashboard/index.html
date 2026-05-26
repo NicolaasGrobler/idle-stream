@@ -397,7 +397,24 @@
       return `${mon} ${+m[3]}, ${m[4]}:${m[5]}:${m[6]}`;
     };
 
-    function renderSessionsTab(sessions, selected) {
+    // Per-session export control (button / progress / download), driven by the
+    // /api/export job map. `i` is the index into the full sessions array.
+    function exportControl(sid, name, i, exports) {
+      const ex = (exports || {})[sid];
+      if (ex && ex.status === 'running') {
+        return `<button class="sm stop sess-export" data-idx="${i}" disabled>Exporting ${Math.round((ex.progress || 0) * 100)}%</button>`;
+      }
+      if (ex && ex.ready) {
+        return `<a class="sm go" href="/api/export/download?id=${encodeURIComponent(sid)}" download="${escapeHtml(name || sid)}.mp4" style="text-decoration:none" title="Download rendered MP4">⬇ MP4</a>`
+          + `<button class="sm stop sess-export" data-idx="${i}" title="Re-export">↻</button>`;
+      }
+      if (ex && ex.status === 'error') {
+        return `<button class="sm stop sess-export" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">⚠ Retry</button>`;
+      }
+      return `<button class="sm stop sess-export" data-idx="${i}" title="Render the program edit to one MP4">⤓ Export</button>`;
+    }
+
+    function renderSessionsTab(sessions, selected, exports) {
       if (!sessions.length) return '<div class="empty">No sessions recorded yet. They appear here after you Record → Stop.</div>';
       const sub = `<div class="rec-sub">${sessions.length} session${sessions.length === 1 ? '' : 's'} · <a href="/api/sessions" download="switches.json">Download switches.json</a></div>`;
       // Camera sub-tabs: the union of cameras across all sessions (sessions carry
@@ -421,6 +438,7 @@
             <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'}</div>
             <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
           </div><button class="go sess-preview" data-idx="${i}">▶ Preview</button>`
+          + exportControl(s.sessionId, s.name, i, exports)
           + `<button class="sm stop sess-del" data-idx="${i}" title="Delete session">🗑</button></div>`;
         }).reverse().join('');
       return sub + subtabs + (cards || '<div class="empty">No sessions for this camera.</div>');
@@ -473,8 +491,9 @@
       let active = 'sessions';
       let clipCam = 'all';                 // selected camera sub-tab within Clips
       let sessCam = 'all';                 // selected camera sub-tab within Sessions
-      const data = { recCams: [], sess: [] };
-      const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const data = { recCams: [], sess: [], exports: {} };
+      let exportPoll = null;
+      const close = () => { clearTimeout(exportPoll); overlay.remove(); document.removeEventListener('keydown', onKey, true); };
       const onKey = (e) => { if (e.key === 'Escape') close(); };
       document.addEventListener('keydown', onKey, true);
       overlay.querySelector('.rec-close').addEventListener('click', close);
@@ -483,13 +502,20 @@
       function renderTab() {
         tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === active));
         if (active === 'sessions') {
-          body.innerHTML = renderSessionsTab(data.sess, sessCam);
+          body.innerHTML = renderSessionsTab(data.sess, sessCam, data.exports);
           body.querySelectorAll('.clip-subtab').forEach((b) =>
             b.addEventListener('click', () => { sessCam = b.dataset.cam; renderTab(); }));
           body.querySelectorAll('.sess-preview').forEach((b) =>
             b.addEventListener('click', () => openSessionPreview(data.sess[Number(b.dataset.idx)], data.recCams)));
           body.querySelectorAll('.sess-del').forEach((b) =>
             b.addEventListener('click', () => deleteSession(data.sess[Number(b.dataset.idx)], data.recCams, load)));
+          body.querySelectorAll('.sess-export').forEach((b) =>
+            b.addEventListener('click', async () => {
+              const sid = data.sess[Number(b.dataset.idx)].sessionId;
+              b.disabled = true; b.textContent = 'Starting…';
+              try { await fetch(`/api/export?id=${encodeURIComponent(sid)}`, { method: 'POST' }); } catch {}
+              pollExports();
+            }));
         } else {
           body.innerHTML = renderClipsTab(data.recCams, clipCam);
           body.querySelectorAll('.clip-subtab').forEach((b) =>
@@ -502,16 +528,28 @@
       }
       tabs.forEach((t) => t.addEventListener('click', () => { active = t.dataset.tab; renderTab(); }));
 
+      // Poll the export job map while any job is running; re-render so the
+      // Sessions tab reflects live progress and surfaces the download when done.
+      async function pollExports() {
+        try { data.exports = await fetch('/api/export').then((r) => r.json()); } catch { return; }
+        if (active === 'sessions') renderTab();
+        clearTimeout(exportPoll);
+        if (Object.values(data.exports).some((j) => j && j.status === 'running')) exportPoll = setTimeout(pollExports, 1200);
+      }
+
       async function load() {
         body.textContent = 'Loading…';
         try {
-          const [recs, sessions] = await Promise.all([
+          const [recs, sessions, exports] = await Promise.all([
             fetch('/api/recordings').then((r) => r.json()),
             fetch('/api/sessions').then((r) => r.json()),
+            fetch('/api/export').then((r) => r.json()).catch(() => ({})),
           ]);
           data.recCams = recs.cameras || [];
           data.sess = Array.isArray(sessions) ? sessions : [];
+          data.exports = exports || {};
           renderTab();
+          if (Object.values(data.exports).some((j) => j && j.status === 'running')) pollExports();
         } catch (e) { body.textContent = 'Failed to load recordings: ' + e.message; }
       }
       overlay.querySelector('.rec-refresh').addEventListener('click', load);

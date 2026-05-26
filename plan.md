@@ -74,7 +74,7 @@ Firewall rules needed on the LAN: **8443/tcp**, **8444/tcp** (if operator is rem
 `getUserMedia` requires a secure context; on a LAN IP over `http://` it's unavailable. **iOS Safari does not honor "accept the risk" on a self-signed cert** — it silently blocks the camera. Fix: a locally-trusted cert via **mkcert**.
 
 1. Static LAN IP on the router (dev: `192.168.0.52`).
-2. `setup\fetch-tools.ps1` (downloads mkcert + MediaMTX), then `setup\make-certs.ps1` — installs the local CA and issues a cert with the LAN IP as an **IP SAN** (+ `localhost`, `127.0.0.1`), into `certs/`.
+2. `setup\fetch-tools.ps1` (downloads mkcert + MediaMTX + ffmpeg), then `setup\make-certs.ps1` — installs the local CA and issues a cert with the LAN IP as an **IP SAN** (+ `localhost`, `127.0.0.1`), into `certs/`.
 3. Phones download `rootCA.pem` (served at `https://<ip>:8443/rootCA.pem`) and trust it:
    - **iOS:** install profile, **then** Settings ▸ General ▸ About ▸ Certificate Trust Settings → enable full trust (both steps).
    - **Android:** Settings ▸ Security ▸ Install a certificate ▸ CA certificate.
@@ -106,7 +106,8 @@ dev-server:
 - Enforces **one phone per camera** (assignment evicts a prior holder). Records only slots that are **live in MediaMTX at the moment Record is pressed** (checks the API, not a stale flag).
 - Owns the camera list (persisted `data/cameras.json`); creates/deletes MediaMTX paths via the API and re-ensures them every 2s (survives a MediaMTX restart). Phone→camera assignments are persisted too (`data/assignments.json`), so a control-service restart (or crash) restores each phone to its slot when it reconnects — the phones keep streaming regardless.
 - **Recording set grows during a session.** Record captures the cameras live at the moment it's pressed, but a camera that goes live *later* in the session (a late-joining phone, or one reassigned mid-take) is added to the recording with its own start stamp and becomes a valid switch target. Takes are only logged for cameras actually in the recording set.
-- **HTTP API** (proxied to the dashboard under `/api/*`): `GET /api/recordings` (files grouped by camera), `GET /api/recordings/download?cam=&name=` (streams one file inline with HTTP Range; addressed by validated `cam`+`name` joined under the recordings root — no caller path, no traversal), `DELETE` on the same URL (removes that one file, same validation), `GET /api/sessions` (the `switches.json` array) + `DELETE /api/sessions?id=` (drop one session from the log; clips untouched), `GET /api/preflight` (recordings dir writable + free bytes). Mostly read-only; the only mutations are deleting a clip or a session (both gated client-side behind a confirmation). No auth — same LAN-trust posture as the rest.
+- **HTTP API** (proxied to the dashboard under `/api/*`): `GET /api/recordings` (files grouped by camera), `GET /api/recordings/download?cam=&name=` (streams one file inline with HTTP Range; addressed by validated `cam`+`name` joined under the recordings root — no caller path, no traversal), `DELETE` on the same URL (removes that one file, same validation), `GET /api/sessions` (the `switches.json` array) + `DELETE /api/sessions?id=` (drop one session from the log; clips untouched), `GET /api/preflight` (recordings dir writable + free bytes), and the **export** trio — `POST /api/export?id=` (kick off an async render of one session to MP4), `GET /api/export[?id=]` (one job's status, or the whole job map), `GET /api/export/download?id=` (stream the finished MP4 inline with HTTP Range). Mostly read-only; the mutations are deleting a clip or session (gated client-side behind a confirmation) and starting an export. No auth — same LAN-trust posture as the rest.
+- **Session export** (`control/exports.mjs`): renders a session's switch log into one finished MP4 — the real deliverable vs. the in-browser preview. It cuts each program segment from the active camera's clip (session-time → clip-time via `recordStartedAt`), **re-encodes** to a normalized 1080p30 H.264 + AAC stream, and concatenates via MPEG-TS intermediates (so segments with different x264 headers remux cleanly). Missing footage — a pre-roll gap, a camera with no clip, or a clip whose footage ran out before the take ended — is filled with black + silence so the output stays aligned with the logged offsets. The active camera's own audio is used per segment. Runs async with part-based progress; writes `exports/<sessionId>.mp4`. Uses the `ffmpeg`/`ffprobe` in `tools/` if present, else a PATH binary. Re-encode is required (arbitrary cut points across switching sources can't be stream-copied cleanly); this is a one-shot export, **not** the live N-stream constraint the project avoids (see [Future](#future-live-streaming-not-v1)). The lossless per-angle clips remain the masters.
 - **Switch log.** Each recording is a session. On Record it stamps **per-camera record-start timestamps** and opens an empty switch log; each `switch` (operator "take cam N", ignored unless recording, consecutive duplicates skipped) appends `{wall-clock, offset-from-session-start, camId, label}`. On Stop the session — timing, per-camera start stamps, and the ordered takes — is appended to `data/switches.json` for the post-production cut. Offsets map directly onto the recording timeline.
 - **Auto-clear.** A reconcile loop (2s) tracks live publishers; if a recording has **no live publisher for 30s** it auto-stops and finalizes the session, so a recording isn't left running after everyone leaves. The grace window tolerates WiFi blips — a phone reconnecting within it resumes and resets the timer.
 
@@ -114,7 +115,7 @@ dev-server:
 - **Cameras panel**: add (next free `camN`), inline rename, remove (× — deletes the MediaMTX path and unassigns phones).
 - **Phone roster**: each phone's slot dropdown (taken slots disabled), live/standby badge, and a **battery** badge (red when ≤20% and not charging) where the phone reports it. Disconnected phones stay listed as **offline** (dimmed, slot retained) with a × to remove a stale one.
 - **Session controls**: Start Preview (all), Stop Preview, Record / Stop Recording, live count, recording timer.
-- **Recordings browser**: a **tabbed** modal — *Sessions* (a camera sub-tab row — All + one per camera, filtering to sessions whose `cameras[]` include it — then each recording as a card: name/time, duration, take count, camera chips, ▶ Preview, delete-with-confirmation) and *Clips* (a camera sub-tab row — All + one per camera — filtering files grouped per camera with humanized times, size, ▶ Play, download, delete-with-confirmation) — fetched from the control service's read-only `/api/*` endpoints. The clip endpoint serves files **inline with HTTP Range** so they stream/seek in-browser; the `switches.json` download lives on the Sessions tab. Deleting a session offers an opt-in checkbox to **also delete that session's matched clip files** (the same mtime matching the preview player uses, via the recordings DELETE endpoint).
+- **Recordings browser**: a **tabbed** modal — *Sessions* (a camera sub-tab row — All + one per camera, filtering to sessions whose `cameras[]` include it — then each recording as a card: name/time, duration, take count, camera chips, ▶ Preview, delete-with-confirmation) and *Clips* (a camera sub-tab row — All + one per camera — filtering files grouped per camera with humanized times, size, ▶ Play, download, delete-with-confirmation) — fetched from the control service's read-only `/api/*` endpoints. The clip endpoint serves files **inline with HTTP Range** so they stream/seek in-browser; the `switches.json` download lives on the Sessions tab. Deleting a session offers an opt-in checkbox to **also delete that session's matched clip files** (the same mtime matching the preview player uses, via the recordings DELETE endpoint). Each session card also has an **Export** button that renders the program edit to one MP4 server-side (async; the button shows live progress and turns into a download link when done).
 - **Switch-log preview player**: each session has a **Preview** that plays the program edit in-browser — one active angle at a time, swapping at each logged take, with a scrubber and take markers. Each per-angle clip is mapped onto the session timeline via its `recordStartedAt`; pre-roll shows a black "before first take" panel, a take whose camera has no file shows "no footage", and a take whose clip's footage **runs out before the take ends** swaps from the (misleading) frozen frame to a "footage ended" panel — the timeline keeps advancing and ends cleanly at `durationSec`. It's a synced single-active-`<video>` preview (not a rendered export), so cross-clip sync is approximate, not frame-accurate.
 - **Pre-flight check**: a modal verifies, per assigned camera, that it's live, video is **H.264** (so recording stays copy-only), and an audio track is present (from the MediaMTX `tracks`), plus a disk writable/free-space check (`/api/preflight`). Shows a pass/warn/fail checklist and an overall ready verdict.
 - **WHEP multiview**: dynamic tiles that grow/shrink with the camera list, per-tile inbound bitrate, and a **layout selector (Auto / 2 / 3 / 4 per row)** remembered in `localStorage`.
@@ -134,8 +135,8 @@ dev-server:
 idle-stream/
 ├── mediamtx/mediamtx.yml         # MediaMTX config template (no paths, no LAN IP); dev-up renders mediamtx.gen.yml
 ├── control/
-│   ├── {index,state,mediamtx,cameras,switches,recordings}.mjs
-│   └── test/control.test.mjs      # node:test parity suite (npm test)
+│   ├── {index,state,mediamtx,cameras,switches,recordings,assignments,exports}.mjs
+│   └── test/{control,export}.test.mjs   # node:test suites (npm test)
 ├── phone-pwa/index.html          # phone capture client (WHIP + control WS)
 ├── operator-dashboard/index.html # operator UI (control WS + WHEP grid)
 ├── milestone0/                   # standalone getUserMedia diagnostic (keep for new-device cert checks)
@@ -146,8 +147,8 @@ idle-stream/
 ├── package-lock.json             # (node_modules/ gitignored; npm install restores)
 ├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # Windows PowerShell equivalents of the CLI
 ├── scripts/{dev-up,dev-down}.ps1 # Windows start/stop (same behavior as cli up/down)
-├── tools/                        # mkcert, mediamtx binaries (gitignored; npm run setup re-downloads)
-├── certs/  data/  recordings/  logs/   # all gitignored
+├── tools/                        # mkcert, mediamtx, ffmpeg, ffprobe binaries (gitignored; npm run setup re-downloads)
+├── certs/  data/  recordings/  exports/  logs/   # all gitignored
 └── plan.md
 ```
 
@@ -157,7 +158,7 @@ Cross-platform via the Node launcher (Windows/macOS/Linux):
 
 ```bash
 npm install                      # once: the one runtime dependency (ws)
-npm run setup                    # once: download mkcert + MediaMTX for this OS/arch
+npm run setup                    # once: download mkcert + MediaMTX + ffmpeg for this OS/arch
 npm run certs                    # once: local CA + cert for the LAN IP; trust rootCA on phones
 npm run up                       # start MediaMTX + control + both dev-servers (logs in ./logs)
 # Phones:   https://<LAN-IP>:8443/      Operator: https://localhost:8444/
@@ -184,6 +185,7 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 - **Recordings list/download**: done — read-only `/api/*` endpoints + a dashboard Recordings modal to browse and download per-angle files and the `switches.json` logs. API validated direct + via the TLS proxy (incl. traversal rejection); modal rendering validated in a browser.
 - **Pre-flight check**: done — dashboard modal checks each assigned camera for live + H.264 + audio (from MediaMTX `tracks`) and a disk writable/free check (`/api/preflight`), with a pass/warn/fail verdict. Endpoint + checklist rendering validated.
 - **Phone polish**: done — landscape-rotate overlay (best-effort lock on Android) and battery reporting to the operator (local badge + roster badge) where supported. Overlay + battery rendering validated in a browser; battery-in-status flow validated offline.
+- **Session export**: done — `control/exports.mjs` renders a session's switch log to one re-encoded 1080p30 H.264+AAC MP4 (program-segment cuts + black/silence fillers for missing footage), exposed as async `/api/export*` routes with a progress-tracking Export button on each session card. ffmpeg/ffprobe are added to the tool download (BtbN static builds on Windows/Linux, evermeet on macOS; falls back to a PATH binary). Engine validated end-to-end with real ffmpeg (correct cut boundaries, black tail, audio, duration); HTTP routes + dashboard UI validated via the proxy-repro trick; segment/parts planner covered by `npm test`.
 
 ### Next
 - **Hardware/OS validation**: real multi-phone run (switch log + reconnect + landscape/battery end-to-end); exercise the macOS/Linux launcher branches. Needs physical devices / other OSes.
@@ -191,6 +193,7 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 
 ### Known limitations
 - The cross-platform Node launcher (`cli/`) is validated on Windows; the macOS/Linux branches (tool download/extract via `tar`, `lsof`-based stop) are written but unverified on those OSes.
+- **Session export (v1)** re-encodes to a fixed **1080p30** H.264 + AAC and uses **one camera per program segment** with the active camera's audio (no transitions, no audio mixing/ducking, no per-export resolution/bitrate choice). Cross-clip sync is **approximate** (sub-second), matching the preview player — not frame-accurate. ffmpeg is pulled from BtbN's rolling `latest` build (Windows/Linux) and evermeet (macOS, Intel — runs under Rosetta on Apple Silicon); only the Windows download path is verified.
 
 ## Future: Live Streaming (not v1)
 

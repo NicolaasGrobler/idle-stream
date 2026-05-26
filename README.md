@@ -55,7 +55,7 @@ For the full design rationale and the decisions behind it, see **[plan.md](plan.
 
 ```bash
 npm install          # install the one runtime dependency (ws)
-npm run setup        # download mkcert + MediaMTX for your OS/arch into tools/
+npm run setup        # download mkcert + MediaMTX + ffmpeg for your OS/arch into tools/
 npm run certs        # install a local CA + issue a LAN cert (auto-detects your IP)
 ```
 
@@ -104,7 +104,8 @@ specific address: `npm run up -- --ip 10.0.0.5`.
    which camera is the program feed. Each take is logged with its timestamp.
 7. **Stop Recording** — finalizes the switch log for that session.
 8. **Recordings** (header button) — browse and download the per-angle files and
-   the `switches.json` logs straight from the dashboard.
+   the `switches.json` logs straight from the dashboard, preview a session's
+   program edit in-browser, and **Export** any session to a single finished MP4.
 
 ## What you get
 
@@ -114,6 +115,11 @@ specific address: `npm run up -- --ip 10.0.0.5`.
   times, each camera's record-start timestamp, and the ordered list of program
   "takes" as offsets from the session start. Use it to cut the multi-angle edit
   in post.
+
+- **Rendered export (optional):** the dashboard can render any session's switch
+  log into one finished MP4 (`exports/<session>.mp4`) — the program edit cut from
+  the per-angle clips, re-encoded to 1080p30 H.264 + AAC, with black + silence
+  filling any missing footage. The lossless per-angle clips remain the masters.
 
 The switch log records the operator's *intent* — it does not produce a live
 switched output. (Live switched streaming is intentionally out of scope; see
@@ -157,6 +163,7 @@ plan.md               Full design doc
 
 [MediaMTX](https://github.com/bluenviron/mediamtx) ·
 [mkcert](https://github.com/FiloSottile/mkcert) ·
+[FFmpeg](https://ffmpeg.org/) ·
 [ws](https://github.com/websockets/ws)
 
 ## License
