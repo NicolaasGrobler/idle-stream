@@ -83,6 +83,13 @@
     .rec-row a:hover { text-decoration: underline; }
     .rec-meta { color: #777; white-space: nowrap; flex: none; }
     .rec-sub { font-size: 12px; color: #888; margin-bottom: 6px; }
+    /* Pre-flight checklist */
+    .pf-verdict { display: inline-block; margin-bottom: 10px; font-size: 14px; }
+    .pf-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #1c1c1c; }
+    .pf-row .pf-ico { flex: none; width: 16px; text-align: center; font-weight: 700; }
+    .pf-row .pf-label { font-weight: 600; flex: none; min-width: 120px; }
+    .pf-row .pf-detail { color: #888; font-size: 12px; }
+    .pf-ok { color: #4ade80; } .pf-warn { color: #fbbf24; } .pf-bad { color: #f87171; }
     /* Switch log */
     #switchlogList { max-height: 240px; overflow: auto; }
     .swrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
@@ -98,6 +105,7 @@
     <span id="live" class="badge muted">0 live</span>
     <span id="recstate" class="badge muted">not recording</span>
     <label class="layout">Layout <span id="colsMount"></span></label>
+    <button id="preflightBtn" class="stop sm">Pre-flight</button>
     <button id="recordingsBtn" class="stop sm">Recordings</button>
     <div class="spacer"></div>
     <button id="previewAll" class="go">Start Preview (all)</button>
@@ -336,6 +344,75 @@
       load();
     }
     $('recordingsBtn').addEventListener('click', openRecordings);
+
+    // ---------- Pre-flight check (modal) ----------
+    // Per assigned camera: live? video H.264 (so recording stays copy-only)? audio?
+    // Plus a disk-writable / free-space check from the control service.
+    const VIDEO_CODEC = /h264|h265|hevc|vp8|vp9|av1/i;
+    function preflightRows(paths, pre) {
+      const byName = {};
+      for (const i of (paths.items || [])) byName[i.name] = i;
+      const slots = lastState.slots || {};
+      const cams = (lastState.cameras || []).filter((c) => slots[c.id]);   // only cameras with a phone assigned
+      const rows = [];
+      if (!cams.length) rows.push({ cls: 'bad', label: 'Cameras', detail: 'No phone is assigned to a camera yet.' });
+      for (const c of cams) {
+        const it = byName[c.id] || {};
+        const tracks = it.tracks || [];
+        const live = !!it.ready;
+        const hasVideo = tracks.some((t) => /h264/i.test(t));
+        const hasAudio = tracks.some((t) => !VIDEO_CODEC.test(t));
+        let cls, detail;
+        if (!live) { cls = 'bad'; detail = 'not publishing — Start Preview first'; }
+        else if (!hasVideo) { cls = 'bad'; detail = `video not H.264, recording would not be copy-only (${tracks.join(', ') || 'no tracks'})`; }
+        else if (!hasAudio) { cls = 'warn'; detail = 'live, H.264 — but no audio track'; }
+        else { cls = 'ok'; detail = `H.264 + audio (${tracks.join(', ')})`; }
+        rows.push({ cls, label: `${c.label} · ${c.id}`, detail });
+      }
+      if (pre) {
+        const gb = pre.freeBytes != null ? pre.freeBytes / 1e9 : null;
+        if (!pre.recordingsWritable) rows.push({ cls: 'bad', label: 'Recording disk', detail: 'recordings folder is not writable' });
+        else if (gb != null && gb < 2) rows.push({ cls: 'warn', label: 'Recording disk', detail: `writable, but only ${gb.toFixed(1)} GB free` });
+        else rows.push({ cls: 'ok', label: 'Recording disk', detail: gb != null ? `writable · ${gb.toFixed(1)} GB free` : 'writable' });
+      }
+      return rows;
+    }
+
+    function openPreflight() {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `<div class="modal recmodal">
+        <div class="rec-head"><h3>Pre-flight check</h3><span class="spacer"></span>
+          <button class="sm stop pf-refresh">Re-check</button>
+          <button class="sm stop pf-close">Close</button></div>
+        <div class="rec-body">Checking…</div></div>`;
+      document.body.appendChild(overlay);
+      const body = overlay.querySelector('.rec-body');
+      const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey, true);
+      overlay.querySelector('.pf-close').addEventListener('click', close);
+      overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) close(); });
+      const ICO = { ok: '✓', warn: '!', bad: '✗' };
+      async function load() {
+        body.textContent = 'Checking…';
+        try {
+          const [paths, pre] = await Promise.all([
+            fetch('/paths-status', { cache: 'no-store' }).then((r) => r.json()),
+            fetch('/api/preflight').then((r) => r.json()),
+          ]);
+          const rows = preflightRows(paths, pre);
+          const bad = rows.some((r) => r.cls === 'bad'), warn = rows.some((r) => r.cls === 'warn');
+          const verdict = bad ? { cls: 'bad', text: 'Not ready' } : warn ? { cls: 'warn', text: 'Ready with warnings' } : { cls: 'ok', text: 'Ready to record' };
+          body.innerHTML = `<span class="pf-verdict badge ${verdict.cls}">${verdict.text}</span>`
+            + rows.map((r) => `<div class="pf-row"><span class="pf-ico pf-${r.cls}">${ICO[r.cls]}</span>`
+              + `<span class="pf-label">${escapeHtml(r.label)}</span><span class="pf-detail">${escapeHtml(r.detail)}</span></div>`).join('');
+        } catch (e) { body.textContent = 'Pre-flight failed: ' + e.message; }
+      }
+      overlay.querySelector('.pf-refresh').addEventListener('click', load);
+      load();
+    }
+    $('preflightBtn').addEventListener('click', openPreflight);
 
     // ---------- WHEP multiview (dynamic tiles) ----------
     const tiles = {};

@@ -101,7 +101,7 @@ FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 - **`/ws/operator`** — receives a full `state` snapshot on every change and accepts: `addCamera`/`renameCamera`/`removeCamera`, `assign`/`unassign`/`removePhone`, `startPreview`/`stopPreview`, `startRecording`/`stopRecording`, and `switch` (take a camera as the program feed). `removePhone` only drops an **offline** phone.
 - Enforces **one phone per camera** (assignment evicts a prior holder). Records only slots that are **live in MediaMTX at the moment Record is pressed** (checks the API, not a stale flag).
 - Owns the camera list (persisted `data/cameras.json`); creates/deletes MediaMTX paths via the API and re-ensures them every 2s (survives a MediaMTX restart).
-- **Read-only HTTP API** (proxied to the dashboard under `/api/*`): `GET /api/recordings` (files grouped by camera), `GET /api/recordings/download?cam=&name=` (streams one file; addressed by validated `cam`+`name` joined under the recordings root — no caller path, no traversal), `GET /api/sessions` (the `switches.json` array). No auth — same LAN-trust posture as the rest.
+- **Read-only HTTP API** (proxied to the dashboard under `/api/*`): `GET /api/recordings` (files grouped by camera), `GET /api/recordings/download?cam=&name=` (streams one file; addressed by validated `cam`+`name` joined under the recordings root — no caller path, no traversal), `GET /api/sessions` (the `switches.json` array), `GET /api/preflight` (recordings dir writable + free bytes). No auth — same LAN-trust posture as the rest.
 - **Switch log.** Each recording is a session. On Record it stamps **per-camera record-start timestamps** and opens an empty switch log; each `switch` (operator "take cam N", ignored unless recording, consecutive duplicates skipped) appends `{wall-clock, offset-from-session-start, camId, label}`. On Stop the session — timing, per-camera start stamps, and the ordered takes — is appended to `data/switches.json` for the post-production cut. Offsets map directly onto the recording timeline.
 - **Auto-clear.** A reconcile loop (2s) tracks live publishers; if a recording has **no live publisher for 30s** it auto-stops and finalizes the session, so a recording isn't left running after everyone leaves. The grace window tolerates WiFi blips — a phone reconnecting within it resumes and resets the timer.
 
@@ -110,6 +110,7 @@ FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 - **Phone roster**: each phone's slot dropdown (taken slots disabled), live/standby badge. Disconnected phones stay listed as **offline** (dimmed, slot retained) with a × to remove a stale one.
 - **Session controls**: Start Preview (all), Stop Preview, Record / Stop Recording, live count, recording timer.
 - **Recordings browser**: a modal lists captured files per camera (size + time, download links) and the switch-log sessions (with a `switches.json` download), fetched from the control service's read-only `/api/*` endpoints.
+- **Pre-flight check**: a modal verifies, per assigned camera, that it's live, video is **H.264** (so recording stays copy-only), and an audio track is present (from the MediaMTX `tracks`), plus a disk writable/free-space check (`/api/preflight`). Shows a pass/warn/fail checklist and an overall ready verdict.
 - **WHEP multiview**: dynamic tiles that grow/shrink with the camera list, per-tile inbound bitrate, and a **layout selector (Auto / 2 / 3 / 4 per row)** remembered in `localStorage`.
 - **Switching**: while recording, click a tile — or press number keys **1–9** (vision-mixer style, by camera order) — to "take" that camera as the program feed. The current program tile gets a red **PGM** tally border; a side-panel **switch log** lists every take with its offset. Off-air the controls no-op.
 
@@ -173,9 +174,11 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 - **Persistent phone id**: done — phones carry a `localStorage` id; reconnects keep the slot, dropped phones go offline (not deleted), operator can remove a stale one, and a reconnect mid-recording resumes publishing. Server flow validated offline; dashboard offline UI validated in a browser. Not yet exercised with a real phone reconnect.
 - **Recording auto-clear**: done — a recording with no live publisher for 30s auto-stops and finalizes the session (blip-tolerant via the grace window). Validated offline.
 - **Recordings list/download**: done — read-only `/api/*` endpoints + a dashboard Recordings modal to browse and download per-angle files and the `switches.json` logs. API validated direct + via the TLS proxy (incl. traversal rejection); modal rendering validated in a browser.
+- **Pre-flight check**: done — dashboard modal checks each assigned camera for live + H.264 + audio (from MediaMTX `tracks`) and a disk writable/free check (`/api/preflight`), with a pass/warn/fail verdict. Endpoint + checklist rendering validated.
 
 ### Next
-- **Pre-flight check** screen (all cameras publishing, codec H.264, recording writes, audio present).
+- **Phone polish**: landscape lock, low-battery warning.
+- **Hardware/OS validation**: real multi-phone run (switch log + reconnect end-to-end); exercise the macOS/Linux launcher branches.
 - **Phone polish**: landscape lock, low-battery warning.
 
 ### Known limitations

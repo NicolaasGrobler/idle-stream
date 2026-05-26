@@ -6,6 +6,8 @@ filename only (validated, joined under the recordings root) so a caller can
 never traverse outside it.
 """
 import re
+import shutil
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +30,24 @@ def list_recordings() -> list[dict]:
         cams.append({"cam": cam_dir.name, "files": files,
                      "totalBytes": sum(x["sizeBytes"] for x in files)})
     return cams
+
+
+def preflight() -> dict:
+    """Disk-readiness for recording: is the recordings folder writable, and how
+    much free space is there. (Codec/audio/live are checked client-side from the
+    MediaMTX paths list.)"""
+    RECORDINGS.mkdir(parents=True, exist_ok=True)
+    writable = False
+    try:
+        with tempfile.NamedTemporaryFile(dir=RECORDINGS, prefix=".preflight-", delete=True):
+            writable = True
+    except Exception:
+        writable = False
+    try:
+        free = shutil.disk_usage(RECORDINGS).free
+    except Exception:
+        free = None
+    return {"recordingsWritable": writable, "freeBytes": free, "recordingsPath": str(RECORDINGS)}
 
 
 def resolve_recording(cam: str, name: str) -> Path | None:

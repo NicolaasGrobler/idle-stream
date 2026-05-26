@@ -355,6 +355,11 @@ async def api_sessions():
     return switches_store.load_sessions()
 
 
+@app.get("/api/preflight")
+async def api_preflight():
+    return recordings_store.preflight()
+
+
 @app.get("/api/recordings/download")
 async def api_download(cam: str, name: str):
     path = recordings_store.resolve_recording(cam, name)

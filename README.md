@@ -98,12 +98,14 @@ specific address: `npm run up -- --ip 10.0.0.5`.
    camera slot (one phone per slot).
 3. **Start Preview** — assigned phones begin streaming (not recording yet). Frame
    and check every angle in the live grid.
-4. **Record** — every live camera starts recording together, copy-only, with a
+4. **Pre-flight** (header button, optional) — confirm every camera is live, H.264,
+   and has audio, and that the disk is writable, before you commit.
+5. **Record** — every live camera starts recording together, copy-only, with a
    synchronized start.
-5. **While recording**, click a tile — or press number keys **1–9** — to mark
+6. **While recording**, click a tile — or press number keys **1–9** — to mark
    which camera is the program feed. Each take is logged with its timestamp.
-6. **Stop Recording** — finalizes the switch log for that session.
-7. **Recordings** (header button) — browse and download the per-angle files and
+7. **Stop Recording** — finalizes the switch log for that session.
+8. **Recordings** (header button) — browse and download the per-angle files and
    the `switches.json` logs straight from the dashboard.
 
 ## What you get
