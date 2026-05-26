@@ -6,9 +6,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import { createService } from '../index.mjs';
-import { resolveRecording } from '../recordings.mjs';
+import { resolveRecording, deleteRecording } from '../recordings.mjs';
 
 // A WebSocket-like double: captures everything the service sends, and emits
 // 'close' when the service closes it (so a stale-socket takeover is exercised).
@@ -549,4 +552,23 @@ test('recordings download rejects path traversal', () => {
   assert.equal(resolveRecording('cam1', ''), null);
   // A clean pair that simply doesn't exist on disk also yields null (not a throw).
   assert.equal(resolveRecording('cam1', 'nonexistent-file.mp4'), null);
+});
+
+test('deleteRecording removes a real file and rejects traversal / misses', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'recordings');
+  const camDir = join(root, '__deltest__');
+  const file = join(camDir, 'clip.mp4');
+  mkdirSync(camDir, { recursive: true });
+  writeFileSync(file, 'x');
+  try {
+    assert.equal(deleteRecording('..', 'clip.mp4'), false);            // traversal rejected
+    assert.equal(deleteRecording('__deltest__', '../../package.json'), false);
+    assert.equal(deleteRecording('__deltest__', 'nope.mp4'), false);   // doesn't exist
+    assert.equal(existsSync(file), true);                              // nothing deleted yet
+    assert.equal(deleteRecording('__deltest__', 'clip.mp4'), true);    // real delete
+    assert.equal(existsSync(file), false);
+    assert.equal(deleteRecording('__deltest__', 'clip.mp4'), false);   // already gone
+  } finally {
+    rmSync(camDir, { recursive: true, force: true });
+  }
 });
