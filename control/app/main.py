@@ -31,6 +31,12 @@ mtx = MediaMTX()
 operators: set[WebSocket] = set()
 phone_sockets: dict[str, WebSocket] = {}
 
+# Auto-stop a recording this many seconds after the last publisher drops (e.g.
+# the event ended). The grace window tolerates brief WiFi blips — a phone that
+# reconnects within it resumes publishing and the timer resets.
+AUTO_STOP_GRACE_S = 30
+_empty_since: float | None = None
+
 
 def persist_cameras() -> None:
     cameras_store.save(state.cameras)
@@ -56,6 +62,39 @@ async def send_phone(phone_id: str, payload: dict) -> None:
 
 async def assigned_msg(slot) -> dict:
     return {"type": "assigned", "slot": slot, "label": state.label_for(slot) if slot else None}
+
+
+async def stop_recording() -> None:
+    """Turn recording off for every path and finalize the switch-log session.
+
+    Shared by the operator's Stop Recording and the reconcile loop's auto-clear.
+    """
+    for cam in state.camera_ids():
+        await mtx.set_record(cam, False)
+    if state.session_id:                        # finalize the editorial switch log
+        stopped = time.time()
+        switches_store.append_session({
+            "sessionId": state.session_id,
+            "startedAt": state.recording_started_at,
+            "startedAtIso": _iso(state.recording_started_at),
+            "stoppedAt": stopped,
+            "stoppedAtIso": _iso(stopped),
+            "durationSec": round(stopped - (state.recording_started_at or stopped), 3),
+            "cameras": [
+                {"id": cid, "label": state.label_for(cid) or cid,
+                 "recordStartedAt": ts, "recordStartedAtIso": _iso(ts)}
+                for cid, ts in state.camera_record_started.items()
+            ],
+            "switches": state.switches,
+        })
+    state.recording = False
+    state.recording_started_at = None
+    state.session_id = None
+    state.camera_record_started = {}
+    state.switches = []
+    for pid in list(phone_sockets):
+        await send_phone(pid, {"type": "recording", "on": False})
+    await broadcast_state()
 
 
 # ----- Phone endpoint -------------------------------------------------------
@@ -228,32 +267,7 @@ async def handle_operator_message(msg: dict) -> None:
                 await broadcast_state()
 
     elif t == "stopRecording":
-        for cam in state.camera_ids():
-            await mtx.set_record(cam, False)
-        if state.session_id:                        # finalize the editorial switch log
-            stopped = time.time()
-            switches_store.append_session({
-                "sessionId": state.session_id,
-                "startedAt": state.recording_started_at,
-                "startedAtIso": _iso(state.recording_started_at),
-                "stoppedAt": stopped,
-                "stoppedAtIso": _iso(stopped),
-                "durationSec": round(stopped - (state.recording_started_at or stopped), 3),
-                "cameras": [
-                    {"id": cid, "label": state.label_for(cid) or cid,
-                     "recordStartedAt": ts, "recordStartedAtIso": _iso(ts)}
-                    for cid, ts in state.camera_record_started.items()
-                ],
-                "switches": state.switches,
-            })
-        state.recording = False
-        state.recording_started_at = None
-        state.session_id = None
-        state.camera_record_started = {}
-        state.switches = []
-        for pid in list(phone_sockets):
-            await send_phone(pid, {"type": "recording", "on": False})
-        await broadcast_state()
+        await stop_recording()
 
 
 async def ws_operator(ws: WebSocket) -> None:
@@ -272,20 +286,35 @@ async def ws_operator(ws: WebSocket) -> None:
 
 
 # ----- Reconcile with MediaMTX ----------------------------------------------
+async def reconcile_once() -> None:
+    global _empty_since
+    ready = await mtx.ready_paths()
+    for c in state.cameras:                        # survive a MediaMTX restart
+        if c.id not in ready:
+            await mtx.add_path(c.id)
+    changed = False
+    for p in state.phones.values():
+        want = bool(p.slot and ready.get(p.slot))
+        if p.publishing != want:
+            p.publishing = want
+            changed = True
+    if changed:
+        await broadcast_state()
+
+    # Auto-clear a recording left running after every publisher has dropped.
+    if state.recording and not any(p.publishing for p in state.phones.values()):
+        if _empty_since is None:
+            _empty_since = time.monotonic()
+        elif time.monotonic() - _empty_since >= AUTO_STOP_GRACE_S:
+            await stop_recording()
+            _empty_since = None
+    else:
+        _empty_since = None
+
+
 async def reconcile_loop() -> None:
     while True:
-        ready = await mtx.ready_paths()
-        for c in state.cameras:                    # survive a MediaMTX restart
-            if c.id not in ready:
-                await mtx.add_path(c.id)
-        changed = False
-        for p in state.phones.values():
-            want = bool(p.slot and ready.get(p.slot))
-            if p.publishing != want:
-                p.publishing = want
-                changed = True
-        if changed:
-            await broadcast_state()
+        await reconcile_once()
         await asyncio.sleep(2)
 
 

@@ -102,6 +102,7 @@ FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 - Enforces **one phone per camera** (assignment evicts a prior holder). Records only slots that are **live in MediaMTX at the moment Record is pressed** (checks the API, not a stale flag).
 - Owns the camera list (persisted `data/cameras.json`); creates/deletes MediaMTX paths via the API and re-ensures them every 2s (survives a MediaMTX restart).
 - **Switch log.** Each recording is a session. On Record it stamps **per-camera record-start timestamps** and opens an empty switch log; each `switch` (operator "take cam N", ignored unless recording, consecutive duplicates skipped) appends `{wall-clock, offset-from-session-start, camId, label}`. On Stop the session — timing, per-camera start stamps, and the ordered takes — is appended to `data/switches.json` for the post-production cut. Offsets map directly onto the recording timeline.
+- **Auto-clear.** A reconcile loop (2s) tracks live publishers; if a recording has **no live publisher for 30s** it auto-stops and finalizes the session, so a recording isn't left running after everyone leaves. The grace window tolerates WiFi blips — a phone reconnecting within it resumes and resets the timer.
 
 ### Operator dashboard (`operator-dashboard/`)
 - **Cameras panel**: add (next free `camN`), inline rename, remove (× — deletes the MediaMTX path and unassigns phones).
@@ -168,15 +169,14 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 - **Switch log**: done — tile-click / 1–9 "take cam N" with PGM tally, per-camera record-start stamps, sessions appended to `data/switches.json`. Server-flow validated (handlers driven offline with a stubbed MediaMTX); dashboard rendering validated in a browser. Not yet exercised end-to-end with a live phone publisher.
 - **Cross-platform launcher**: done — `cli/` Node CLI (`npm run setup|certs|up|down`) alongside the PowerShell scripts. Validated on Windows; macOS/Linux branches unverified.
 - **Persistent phone id**: done — phones carry a `localStorage` id; reconnects keep the slot, dropped phones go offline (not deleted), operator can remove a stale one, and a reconnect mid-recording resumes publishing. Server flow validated offline; dashboard offline UI validated in a browser. Not yet exercised with a real phone reconnect.
+- **Recording auto-clear**: done — a recording with no live publisher for 30s auto-stops and finalizes the session (blip-tolerant via the grace window). Validated offline.
 
 ### Next
 - **Stop Session + recordings list**: see/download captured files from the dashboard (per-camera start stamps already recorded by the switch log, so files and `switches.json` can be aligned).
-- **Recording auto-clear**: stop the session automatically when the last publisher drops, instead of leaving it in a recording state.
 - **Pre-flight check** screen (all cameras publishing, codec H.264, recording writes, audio present).
 - **Phone polish**: landscape lock, low-battery warning.
 
 ### Known limitations
-- Recording state doesn't auto-clear if every phone drops — the operator clicks Stop Recording.
 - The cross-platform Node launcher (`cli/`) is validated on Windows; the macOS/Linux branches (tool download/extract via `tar`, `lsof`-based stop) are written but unverified on those OSes.
 
 ## Future: Live Streaming (not v1)

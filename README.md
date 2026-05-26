@@ -131,8 +131,6 @@ Open **8443/tcp**, **8444/tcp** (if the operator is on another machine), and
 
 ## Limitations
 
-- Recording state doesn't auto-clear if every phone drops — the operator clicks
-  Stop Recording.
 - The cross-platform Node launcher is exercised on Windows; the macOS/Linux code
   paths (tool download/extract, `lsof`-based stop) are written but not yet
   verified on those OSes.
