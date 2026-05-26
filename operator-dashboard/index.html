@@ -334,7 +334,8 @@
         if (!c.files.length) { html += '<div class="empty">none</div>'; continue; }
         html += c.files.map((f) =>
           `<div class="rec-row"><a href="/api/recordings/download?cam=${encodeURIComponent(c.cam)}&name=${encodeURIComponent(f.name)}" download>${escapeHtml(f.name)}</a>`
-          + `<span class="rec-meta">${fmtBytes(f.sizeBytes)} · ${fmtTime(f.modified)}</span></div>`).join('');
+          + `<span class="rec-meta">${fmtBytes(f.sizeBytes)} · ${fmtTime(f.modified)} `
+          + `<button class="sm stop clip-play" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}">▶ Play</button></span></div>`).join('');
       }
       return html;
     }
@@ -366,12 +367,34 @@
           body.innerHTML = renderRecordings(recCams, sess);
           body.querySelectorAll('.sess-preview').forEach((b) =>
             b.addEventListener('click', () => openSessionPreview(sess[Number(b.dataset.idx)], recCams)));
+          body.querySelectorAll('.clip-play').forEach((b) =>
+            b.addEventListener('click', () => openClipPreview(b.dataset.cam, b.dataset.name)));
         } catch (e) { body.textContent = 'Failed to load recordings: ' + e.message; }
       }
       overlay.querySelector('.rec-refresh').addEventListener('click', load);
       load();
     }
     $('recordingsBtn').addEventListener('click', openRecordings);
+
+    // ---------- Single-clip preview (native controls) ----------
+    function openClipPreview(cam, name) {
+      const url = `/api/recordings/download?cam=${encodeURIComponent(cam)}&name=${encodeURIComponent(name)}`;
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `<div class="modal player">
+        <div class="rec-head"><h3>${escapeHtml(cam)} · ${escapeHtml(name)}</h3><span class="spacer"></span>
+          <a class="sm stop" href="${url}" download style="text-decoration:none">Download</a>
+          <button class="sm stop clip-close">Close</button></div>
+        <div class="player-stage"><video class="active" controls autoplay playsinline></video></div></div>`;
+      document.body.appendChild(overlay);
+      const v = overlay.querySelector('video');
+      v.src = url;
+      const close = () => { v.pause(); v.removeAttribute('src'); v.load(); overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey, true);
+      overlay.querySelector('.clip-close').addEventListener('click', close);
+      overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) close(); });
+    }
 
     // ---------- Session preview player ----------
     // Plays the program edit for a finished session: a single active <video> at a
