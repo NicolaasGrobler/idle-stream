@@ -486,7 +486,7 @@ function handleHttp(svc, req, res) {
     sendJson(res, 200, recordingsStore.preflight());
     return;
   }
-  if (req.method === 'GET' && path === '/api/recordings/download') {
+  if ((req.method === 'GET' || req.method === 'HEAD') && path === '/api/recordings/download') {
     const cam = url.searchParams.get('cam') ?? '';
     const name = url.searchParams.get('name') ?? '';
     const file = recordingsStore.resolveRecording(cam, name);
@@ -494,11 +494,34 @@ function handleHttp(svc, req, res) {
       sendJson(res, 404, { error: 'not found' });
       return;
     }
-    res.writeHead(200, {
+    const total = statSync(file).size;
+    // Served inline (not attachment) so a <video> can play it; the dashboard's
+    // download links use the `download` attribute, so they still download.
+    // Accept-Ranges + 206 lets the player seek (and Safari requires range).
+    const base = {
       'content-type': 'video/mp4',
-      'content-length': statSync(file).size,
-      'content-disposition': `attachment; filename="${cam}_${name}"`,
-    });
+      'accept-ranges': 'bytes',
+      'content-disposition': `inline; filename="${cam}_${name}"`,
+    };
+    const range = req.headers.range;
+    const m = range && /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (m) {
+      let start = m[1] === '' ? null : parseInt(m[1], 10);
+      let end = m[2] === '' ? null : parseInt(m[2], 10);
+      if (start === null) { start = Math.max(0, total - (end ?? 0)); end = total - 1; }   // bytes=-N suffix
+      else if (end === null || end >= total) { end = total - 1; }
+      if (start > end || start >= total) {
+        res.writeHead(416, { 'content-range': `bytes */${total}` });
+        res.end();
+        return;
+      }
+      res.writeHead(206, { ...base, 'content-range': `bytes ${start}-${end}/${total}`, 'content-length': end - start + 1 });
+      if (req.method === 'HEAD') { res.end(); return; }
+      createReadStream(file, { start, end }).pipe(res);
+      return;
+    }
+    res.writeHead(200, { ...base, 'content-length': total });
+    if (req.method === 'HEAD') { res.end(); return; }
     createReadStream(file).pipe(res);
     return;
   }
