@@ -59,6 +59,14 @@
     .bad { background: #3b0a0a; color: #f87171; }
     .muted { background: #1a1a1a; color: #888; }
     .recdot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444; display: inline-block; }
+    /* Modal (replaces native prompt/confirm) */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: #161616; border: 1px solid #333; border-radius: 12px; padding: 18px; width: min(360px, 90vw); box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+    .modal h3 { margin: 0 0 10px; font-size: 16px; }
+    .modal-msg { margin: 0 0 14px; color: #bbb; font-size: 14px; }
+    .modal-input { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; margin-bottom: 14px; }
+    .modal-input:focus { outline: none; border-color: #4ade80; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
   </style>
 </head>
 <body>
@@ -97,6 +105,35 @@
     // typing a camera name), defer side-panel re-renders so we don't wipe it.
     let sidePanelBusy = false;
     function setBusy(b) { sidePanelBusy = b; if (!b) renderControl(); }
+
+    // Themed modal — replaces native prompt()/confirm().
+    // With `input`: resolves to the trimmed string or null (cancel).
+    // Without: resolves true (confirm) or false (cancel).
+    function showModal({ title, message, input, confirmLabel = 'OK', danger = false }) {
+      return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `<div class="modal">
+          <h3>${escapeHtml(title)}</h3>
+          ${message ? `<p class="modal-msg">${escapeHtml(message)}</p>` : ''}
+          ${input ? `<input class="modal-input" placeholder="${escapeHtml(input.placeholder || '')}" value="${escapeHtml(input.value || '')}" />` : ''}
+          <div class="modal-actions">
+            <button class="stop modal-cancel">Cancel</button>
+            <button class="${danger ? 'rec' : 'go'} modal-ok">${escapeHtml(confirmLabel)}</button>
+          </div></div>`;
+        document.body.appendChild(overlay);
+        const inputEl = overlay.querySelector('.modal-input');
+        const done = (val) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(val); };
+        const ok = () => done(input ? (inputEl.value.trim() || null) : true);
+        const cancel = () => done(input ? null : false);
+        overlay.querySelector('.modal-ok').addEventListener('click', ok);
+        overlay.querySelector('.modal-cancel').addEventListener('click', cancel);
+        overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) cancel(); });
+        function onKey(e) { if (e.key === 'Escape') cancel(); else if (e.key === 'Enter') { e.preventDefault(); ok(); } }
+        document.addEventListener('keydown', onKey, true);
+        if (inputEl) { inputEl.focus(); inputEl.select(); }
+      });
+    }
 
     // Lightweight custom dropdown — no library, matches the theme.
     // opts: [{value, label, disabled}]. Returns { el }.
@@ -155,8 +192,10 @@
         input.addEventListener('focus', () => setBusy(true));
         input.addEventListener('blur', commit);
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
-        row.querySelector('button').addEventListener('click', () => {
-          if (confirm(`Remove ${c.label} (${c.id})?`)) send({ type: 'removeCamera', id: c.id });
+        row.querySelector('button').addEventListener('click', async () => {
+          if (await showModal({ title: 'Remove camera', message: `Remove "${c.label}" (${c.id})?`, confirmLabel: 'Remove', danger: true })) {
+            send({ type: 'removeCamera', id: c.id });
+          }
         });
         cbox.appendChild(row);
       }
@@ -203,7 +242,10 @@
     }
     setInterval(() => { if (lastState.recording) renderControl(); }, 1000);
 
-    $('addCam').addEventListener('click', () => { const l = prompt('Camera name (e.g. Balcony):'); if (l && l.trim()) send({ type: 'addCamera', label: l.trim() }); });
+    $('addCam').addEventListener('click', async () => {
+      const label = await showModal({ title: 'Add camera', input: { placeholder: 'e.g. Balcony' }, confirmLabel: 'Add' });
+      if (label) send({ type: 'addCamera', label });
+    });
     $('previewAll').addEventListener('click', () => send({ type: 'startPreview' }));
     $('stopAll').addEventListener('click', () => send({ type: 'stopPreview' }));
     $('recBtn').addEventListener('click', () => send({ type: 'startRecording' }));
