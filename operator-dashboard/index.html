@@ -99,7 +99,11 @@
     .cam-chip { display: inline-flex; align-items: center; gap: 6px; background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 999px; padding: 2px 10px 2px 7px; font-size: 12px; }
     .cam-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
     .session-card .go { flex: none; }
-    /* Clips, grouped by camera */
+    /* Clips: camera sub-tabs + groups */
+    .clip-subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .clip-subtab { display: inline-flex; align-items: center; gap: 6px; background: #161616; border: 1px solid #2a2a2a; border-radius: 999px; padding: 5px 12px; color: #aaa; font-weight: 600; font-size: 12px; }
+    .clip-subtab:hover { color: #e8e8e8; }
+    .clip-subtab.active { background: rgba(22,163,74,0.18); border-color: #16a34a; color: #e8e8e8; }
     .cam-group { margin-bottom: 16px; }
     .cam-group-head { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #222; margin-bottom: 4px; }
     .cgh-label { font-weight: 600; }
@@ -407,9 +411,14 @@
       return html;
     }
 
-    function renderClipsTab(recCams) {
+    function renderClipsTab(recCams, selected) {
       if (!recCams.length) return '<div class="empty">No clips captured yet.</div>';
-      return recCams.map((c) => {
+      const subtabs = '<div class="clip-subtabs">'
+        + `<button class="clip-subtab${selected === 'all' ? ' active' : ''}" data-cam="all">All</button>`
+        + recCams.map((c) => `<button class="clip-subtab${selected === c.cam ? ' active' : ''}" data-cam="${escapeHtml(c.cam)}">`
+          + `<i class="cam-dot" style="background:${colorForCam(c.cam)}"></i>${escapeHtml(labelOfCam(c.cam))}</button>`).join('')
+        + '</div>';
+      const groups = recCams.filter((c) => selected === 'all' || c.cam === selected).map((c) => {
         const label = labelOfCam(c.cam);
         const idSpan = label !== c.cam ? `<span class="cgh-id">${escapeHtml(c.cam)}</span>` : '';
         const head = `<div class="cam-group-head"><i class="cam-dot" style="background:${colorForCam(c.cam)}"></i>`
@@ -427,6 +436,7 @@
         }).join('');
         return `<div class="cam-group">${head}${rows}</div>`;
       }).join('');
+      return subtabs + (groups || '<div class="empty">No clips for this camera.</div>');
     }
 
     function openRecordings() {
@@ -445,6 +455,7 @@
       const body = overlay.querySelector('.rec-body');
       const tabs = [...overlay.querySelectorAll('.rec-tab')];
       let active = 'sessions';
+      let clipCam = 'all';                 // selected camera sub-tab within Clips
       const data = { recCams: [], sess: [] };
       const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
       const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -459,7 +470,9 @@
           body.querySelectorAll('.sess-preview').forEach((b) =>
             b.addEventListener('click', () => openSessionPreview(data.sess[Number(b.dataset.idx)], data.recCams)));
         } else {
-          body.innerHTML = renderClipsTab(data.recCams);
+          body.innerHTML = renderClipsTab(data.recCams, clipCam);
+          body.querySelectorAll('.clip-subtab').forEach((b) =>
+            b.addEventListener('click', () => { clipCam = b.dataset.cam; renderTab(); }));
           body.querySelectorAll('.clip-play').forEach((b) =>
             b.addEventListener('click', () => openClipPreview(b.dataset.cam, b.dataset.name)));
         }
