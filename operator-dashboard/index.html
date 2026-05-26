@@ -49,9 +49,12 @@
     .phone.off { opacity: 0.6; }
     .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
     .empty { color: #666; font-size: 13px; padding: 6px 0; }
-    #grid { flex: 1; display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-content: start; min-height: 0; overflow: auto; }
+    /* grid-auto-rows: max-content keeps each row as tall as the tile's 16:9 box.
+       Without it, the grid (a definite-height flex child) collapses the auto rows
+       shorter than the tiles, so tiles overflow and overlap the row below. */
+    #grid { flex: 1; display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); grid-auto-rows: max-content; align-content: start; min-height: 0; overflow: auto; }
     .tile { position: relative; background: #000; border: 1px solid #222; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; }
-    body.recording .tile { cursor: pointer; }
+    body.recording .tile.takeable { cursor: pointer; }
     .tile.pgm { border-color: #ef4444; box-shadow: 0 0 0 2px #ef4444 inset, 0 0 16px rgba(239,68,68,0.55); }
     .tile .pgm-badge { position: absolute; top: 8px; right: 10px; display: none; background: #dc2626; color: #fff; }
     .tile.pgm .pgm-badge { display: inline-block; }
@@ -467,12 +470,18 @@
     // "Take" a camera as the program feed. Only meaningful while recording — the
     // log is the editorial cut list aligned to the recordings. Server skips
     // consecutive duplicate takes of the same camera.
-    function takeProgram(id) { if (lastState.recording) send({ type: 'switch', camId: id }); }
+    // A camera can be taken only while recording AND only if it's part of this
+    // session's recording set (server stamps cameraRecordStartedAt at Record).
+    const recordable = (id) => !!lastState.recording && (lastState.cameraRecordStartedAt || {})[id] != null;
+    function takeProgram(id) { if (recordable(id)) send({ type: 'switch', camId: id }); }
     const currentProgram = () => (lastState.switches || []).slice(-1)[0]?.camId || null;
     function renderProgram() {
       const pgm = lastState.recording ? currentProgram() : null;
       document.body.classList.toggle('recording', !!lastState.recording);
-      for (const id of Object.keys(tiles)) tiles[id].root.classList.toggle('pgm', id === pgm);
+      for (const id of Object.keys(tiles)) {
+        tiles[id].root.classList.toggle('pgm', id === pgm);
+        tiles[id].root.classList.toggle('takeable', recordable(id));   // drives the pointer cursor
+      }
     }
     const fmtOffset = (sec) => { sec = Math.max(0, Math.floor(sec || 0)); return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`; };
     function renderSwitchLog() {
