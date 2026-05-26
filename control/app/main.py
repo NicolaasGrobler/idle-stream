@@ -15,9 +15,11 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 
 from . import cameras as cameras_store
 from . import switches as switches_store
+from . import recordings as recordings_store
 from .state import SessionState, Phone, Camera
 from .mediamtx import MediaMTX
 
@@ -339,3 +341,23 @@ app.add_api_websocket_route("/ws/operator", ws_operator)
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "cameras": len(state.cameras), "phones": len(state.phones), "recording": state.recording}
+
+
+# ----- Recordings (read-only; proxied to the dashboard under /api) ----------
+@app.get("/api/recordings")
+async def api_recordings():
+    return {"cameras": recordings_store.list_recordings()}
+
+
+@app.get("/api/sessions")
+async def api_sessions():
+    # The raw switch-log array — also what the dashboard offers as switches.json.
+    return switches_store.load_sessions()
+
+
+@app.get("/api/recordings/download")
+async def api_download(cam: str, name: str):
+    path = recordings_store.resolve_recording(cam, name)
+    if path is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(path, media_type="video/mp4", filename=f"{cam}_{name}")

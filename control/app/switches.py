@@ -14,6 +14,14 @@ from pathlib import Path
 STORE = Path(__file__).resolve().parents[2] / "data" / "switches.json"
 
 
+def load_sessions() -> list:
+    try:
+        data = json.loads(STORE.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
 def append_session(session: dict) -> None:
     STORE.parent.mkdir(parents=True, exist_ok=True)
     try:

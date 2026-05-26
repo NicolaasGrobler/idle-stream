@@ -72,6 +72,17 @@
     .modal-input { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; margin-bottom: 14px; }
     .modal-input:focus { outline: none; border-color: #4ade80; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    /* Recordings modal */
+    .recmodal { width: min(680px, 92vw); max-height: 80vh; display: flex; flex-direction: column; }
+    .rec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .rec-head h3 { margin: 0; }
+    .rec-body { overflow: auto; }
+    .rec-body h4 { margin: 14px 0 4px; font-size: 13px; color: #bbb; display: flex; gap: 8px; align-items: baseline; }
+    .rec-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
+    .rec-row a { color: #4ade80; text-decoration: none; word-break: break-all; }
+    .rec-row a:hover { text-decoration: underline; }
+    .rec-meta { color: #777; white-space: nowrap; flex: none; }
+    .rec-sub { font-size: 12px; color: #888; margin-bottom: 6px; }
     /* Switch log */
     #switchlogList { max-height: 240px; overflow: auto; }
     .swrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
@@ -87,6 +98,7 @@
     <span id="live" class="badge muted">0 live</span>
     <span id="recstate" class="badge muted">not recording</span>
     <label class="layout">Layout <span id="colsMount"></span></label>
+    <button id="recordingsBtn" class="stop sm">Recordings</button>
     <div class="spacer"></div>
     <button id="previewAll" class="go">Start Preview (all)</button>
     <button id="stopAll" class="stop">Stop Preview</button>
@@ -270,6 +282,60 @@
     $('stopAll').addEventListener('click', () => send({ type: 'stopPreview' }));
     $('recBtn').addEventListener('click', () => send({ type: 'startRecording' }));
     $('stopRecBtn').addEventListener('click', () => send({ type: 'stopRecording' }));
+
+    // ---------- Recordings browser (modal) ----------
+    const fmtBytes = (n) => { if (n < 1024) return n + ' B'; const u = ['KB', 'MB', 'GB', 'TB']; let i = -1; do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1); return n.toFixed(1) + ' ' + u[i]; };
+    const fmtTime = (epoch) => new Date(epoch * 1000).toLocaleString();
+
+    function renderRecordings(cams, sessions) {
+      let html = '';
+      if (sessions.length) {
+        html += '<h4>Switch logs</h4>';
+        html += `<div class="rec-sub"><a href="/api/sessions" download="switches.json">Download switches.json</a> · ${sessions.length} session(s)</div>`;
+        html += sessions.slice().reverse().map((s) =>
+          `<div class="rec-row"><span>${escapeHtml(s.startedAtIso || String(s.startedAt || ''))}</span>`
+          + `<span class="rec-meta">${Math.round(s.durationSec || 0)}s · ${(s.switches || []).length} takes</span></div>`).join('');
+      }
+      if (!cams.length) { html += '<div class="empty">No recordings captured yet.</div>'; return html; }
+      for (const c of cams) {
+        html += `<h4>${escapeHtml(c.cam)} <span class="rec-meta">${fmtBytes(c.totalBytes || 0)}</span></h4>`;
+        if (!c.files.length) { html += '<div class="empty">none</div>'; continue; }
+        html += c.files.map((f) =>
+          `<div class="rec-row"><a href="/api/recordings/download?cam=${encodeURIComponent(c.cam)}&name=${encodeURIComponent(f.name)}" download>${escapeHtml(f.name)}</a>`
+          + `<span class="rec-meta">${fmtBytes(f.sizeBytes)} · ${fmtTime(f.modified)}</span></div>`).join('');
+      }
+      return html;
+    }
+
+    function openRecordings() {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `<div class="modal recmodal">
+        <div class="rec-head"><h3>Recordings</h3><span class="spacer"></span>
+          <button class="sm stop rec-refresh">Refresh</button>
+          <button class="sm stop rec-close">Close</button></div>
+        <div class="rec-body">Loading…</div></div>`;
+      document.body.appendChild(overlay);
+      const body = overlay.querySelector('.rec-body');
+      const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey, true);
+      overlay.querySelector('.rec-close').addEventListener('click', close);
+      overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) close(); });
+      async function load() {
+        body.textContent = 'Loading…';
+        try {
+          const [recs, sessions] = await Promise.all([
+            fetch('/api/recordings').then((r) => r.json()),
+            fetch('/api/sessions').then((r) => r.json()),
+          ]);
+          body.innerHTML = renderRecordings(recs.cameras || [], Array.isArray(sessions) ? sessions : []);
+        } catch (e) { body.textContent = 'Failed to load recordings: ' + e.message; }
+      }
+      overlay.querySelector('.rec-refresh').addEventListener('click', load);
+      load();
+    }
+    $('recordingsBtn').addEventListener('click', openRecordings);
 
     // ---------- WHEP multiview (dynamic tiles) ----------
     const tiles = {};

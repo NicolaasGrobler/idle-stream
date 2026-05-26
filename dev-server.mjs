@@ -12,6 +12,7 @@ import { dirname, join, normalize, extname, resolve } from 'node:path';
 // MediaMTX WebRTC signalling (localhost). WHIP/WHEP requests are proxied here so
 // the phone uses a single TLS origin (this server) — no CORS, no cross-origin TLS.
 const MEDIAMTX = { host: '127.0.0.1', port: 8889 };
+const CONTROL = { host: '127.0.0.1', port: 9000 };
 const isMediaMtxPath = (p) => /\/(whip|whep)(\/|$)/.test(p);
 
 function proxyToMediaMtx(req, res) {
@@ -20,6 +21,16 @@ function proxyToMediaMtx(req, res) {
     (up) => { res.writeHead(up.statusCode || 502, up.headers); up.pipe(res); }
   );
   upstream.on('error', (e) => { res.writeHead(502); res.end('MediaMTX unreachable: ' + e.message); });
+  req.pipe(upstream);
+}
+
+// Read-only recordings API (list / download) lives on the control service.
+function proxyToControl(req, res) {
+  const upstream = httpRequest(
+    { host: CONTROL.host, port: CONTROL.port, method: req.method, path: req.url, headers: req.headers },
+    (up) => { res.writeHead(up.statusCode || 502, up.headers); up.pipe(res); }
+  );
+  upstream.on('error', (e) => { res.writeHead(502); res.end('Control service unreachable: ' + e.message); });
   req.pipe(upstream);
 }
 
@@ -67,6 +78,7 @@ const server = createServer(options, (req, res) => {
   // WHIP/WHEP → MediaMTX (same-origin from the phone's perspective).
   if (isMediaMtxPath(urlPath)) { proxyToMediaMtx(req, res); return; }
   if (urlPath === '/paths-status') { proxyPathsStatus(res); return; }
+  if (urlPath.startsWith('/api/')) { proxyToControl(req, res); return; }
 
   if (urlPath === '/rootCA.pem') {
     const ca = join(certDir, 'rootCA.pem');
@@ -93,7 +105,6 @@ const server = createServer(options, (req, res) => {
 // Proxy WebSocket upgrades on /ws/* to the FastAPI control service (localhost).
 // Keeps the coordination channel same-origin (wss on this server) — no separate
 // port for the browser, which keeps iOS happy.
-const CONTROL = { host: '127.0.0.1', port: 9000 };
 server.on('upgrade', (req, socket, head) => {
   if (!req.url || !req.url.startsWith('/ws/')) { socket.destroy(); return; }
   const up = httpRequest({ host: CONTROL.host, port: CONTROL.port, path: req.url, method: req.method, headers: req.headers });

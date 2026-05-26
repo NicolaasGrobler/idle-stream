@@ -103,6 +103,8 @@ specific address: `npm run up -- --ip 10.0.0.5`.
 5. **While recording**, click a tile — or press number keys **1–9** — to mark
    which camera is the program feed. Each take is logged with its timestamp.
 6. **Stop Recording** — finalizes the switch log for that session.
+7. **Recordings** (header button) — browse and download the per-angle files and
+   the `switches.json` logs straight from the dashboard.
 
 ## What you get
 
@@ -131,6 +133,8 @@ Open **8443/tcp**, **8444/tcp** (if the operator is on another machine), and
 
 ## Limitations
 
+- **No authentication.** Anyone on the LAN can open the dashboard, control a
+  session, and download recordings. Run it on a trusted network.
 - The cross-platform Node launcher is exercised on Windows; the macOS/Linux code
   paths (tool download/extract, `lsof`-based stop) are written but not yet
   verified on those OSes.
