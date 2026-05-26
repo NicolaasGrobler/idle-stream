@@ -186,14 +186,26 @@ How it works (`build/`): SEA embeds a single CommonJS script into a copy of the
 `node` binary, so `build-sea.mjs` first **esbuild-bundles** the ESM sources
 (`cli` + `control` + `dev-server`) and the one npm dep (`ws`) into
 `dist/multicam.cjs`, then runs Node's `--experimental-sea-config` blob step and
-injects it with `postject`'s programmatic API. `build/entry.mjs` is the bundle
-entry: it sets the working-root env, then dispatches `multicam <tools|certs|up|down>`
-plus two **internal** subcommands — `multicam __control` and `multicam __server <dir> <port>`
-— which is how `up` launches the four-process stack from the one binary
+injects it with `postject`'s programmatic API. On Windows it finally stamps a
+real icon + version metadata onto the exe (`png-to-ico` → `rcedit`), since a SEA
+binary is otherwise a copy of `node.exe` and shows Node's icon. `build/entry.mjs`
+is the bundle entry: it sets the working-root env, then dispatches
+`multicam <start|tools|certs|up|down>` plus two **internal** subcommands —
+`multicam __control` and `multicam __server <dir> <port>` — which is how the
+launcher/`up` start the four-process stack from the one binary
 (`process.execPath` is the exe; children inherit the env). Every module resolves
 its disk root from `MULTICAM_ROOT` (set by the entry to `process.cwd()`),
 falling back to the source-relative path in dev — so the same code runs both as
 `node cli/index.mjs` and inside the SEA exe.
+
+**Double-click experience.** Run with no command (the default when the exe is
+double-clicked in Explorer), `multicam` becomes a foreground **launcher**: it
+starts the whole stack *attached*, prints a status banner with the phone/operator
+URLs, opens the dashboard in the browser, and keeps the console window open.
+Closing the window or pressing Ctrl+C (or `q`) stops every service — window open
+= studio on. A startup error pauses instead of vanishing so it's readable.
+`multicam up`/`down` remain for headless/background use (detached, stop via
+`down`). `multicam start` is the explicit form of the launcher.
 
 The **Go binaries stay external** in `tools/` (mkcert, mediamtx, ffmpeg). The exe
 isn't fully standalone: run it from a working directory laid out like the repo
@@ -216,7 +228,7 @@ isn't fully standalone: run it from a working directory laid out like the repo
 - **Recordings list/download**: done — read-only `/api/*` endpoints + a dashboard Recordings modal to browse and download per-angle files and the `switches.json` logs. API validated direct + via the TLS proxy (incl. traversal rejection); modal rendering validated in a browser.
 - **Pre-flight check**: done — dashboard modal checks each assigned camera for live + H.264 + audio (from MediaMTX `tracks`) and a disk writable/free check (`/api/preflight`), with a pass/warn/fail verdict. Endpoint + checklist rendering validated.
 - **Phone polish**: done — landscape-rotate overlay (best-effort lock on Android) and battery reporting to the operator (local badge + roster badge) where supported. Overlay + battery rendering validated in a browser; battery-in-status flow validated offline.
-- **Single-exe build**: done — `npm run build:exe` produces a Node SEA binary (`dist/multicam.exe`) by esbuild-bundling cli + control + dev-server + `ws` into one CJS file, then SEA blob + `postject` inject. The entry multiplexes `tools|certs|up|down` plus internal `__control`/`__server` subcommands so `up` runs the whole stack from the one binary; the Go tools stay external. Validated on Windows: the bundled `ws` accepts a live WebSocket and the exe serves the dashboard over TLS via `__server`; `npm test` still green after the refactor. macOS/Linux build paths (BtbN/evermeet ffmpeg, `chmod`) are written but unverified.
+- **Single-exe build**: done — `npm run build:exe` produces a Node SEA binary (`dist/multicam.exe`) by esbuild-bundling cli + control + dev-server + `ws` into one CJS file, then SEA blob + `postject` inject, then (Windows) a `png-to-ico`→`rcedit` icon + version stamp. The entry multiplexes `start|tools|certs|up|down` plus internal `__control`/`__server` subcommands so the launcher runs the whole stack from the one binary; the Go tools stay external. **Double-clicking** the exe runs a foreground launcher (status banner + URLs + auto-open dashboard; close window / Ctrl+C stops everything). Validated on Windows: the built exe starts all four services, serves the dashboard over TLS with the new `/api/export` route live, the bundled `ws` accepts a live WebSocket, the launcher banner + stop-on-signal both work, and the exe carries a real icon + metadata; `npm test` green (27). macOS/Linux build paths (BtbN/evermeet ffmpeg, `chmod`, icon step skipped) are written but unverified.
 - **Session export**: done — `control/exports.mjs` renders a session's switch log to one re-encoded 1080p30 H.264+AAC MP4 (program-segment cuts + black/silence fillers for missing footage), exposed as async `/api/export*` routes with a progress-tracking Export button on each session card. ffmpeg/ffprobe are added to the tool download (BtbN static builds on Windows/Linux, evermeet on macOS; falls back to a PATH binary). Engine validated end-to-end with real ffmpeg (correct cut boundaries, black tail, audio, duration); HTTP routes + dashboard UI validated via the proxy-repro trick; segment/parts planner covered by `npm test`.
 
 ### Next

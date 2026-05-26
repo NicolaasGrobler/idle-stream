@@ -30,16 +30,17 @@ function startSvc(name, file, args, cwd) {
   console.log(`  started ${name} (pid ${child.pid})`);
 }
 
-async function up(prefIp) {
+// Shared startup checks + per-network prep, used by both `up` (detached) and the
+// double-click launcher (foreground). Returns the LAN IP. Throws a friendly
+// message if tools/certs aren't set up yet.
+function prepare(prefIp) {
   if (!existsSync(paths.mediamtx) || !existsSync(paths.mkcert)) {
-    throw new Error('Missing tools. Run:  npm run setup');
+    throw new Error('Missing tools. Run once:  multicam tools');
   }
   if (!certExists()) {
-    throw new Error('Missing certs. Run:  npm run certs');
+    throw new Error('First-time setup needed. Run once:  multicam certs   (installs the local CA + a LAN cert)');
   }
-
   const ip = getLanIP(prefIp);
-
   // Keep the TLS cert bound to the current LAN IP. If the network changed since
   // `certs` ran, the leaf's SAN is stale and iOS silently blocks the camera —
   // reissue it (the mkcert CA is unchanged, so phones stay trusted).
@@ -47,10 +48,14 @@ async function up(prefIp) {
     console.log(`LAN IP changed (${issuedCertIp() || 'unknown'} -> ${ip}); re-issuing TLS cert...`);
     issueCert(ip);
   }
-
   renderMediamtxConfig(ip);
   mkdirSync(paths.logs, { recursive: true });
+  return ip;
+}
 
+// Headless/scripted start: spawn the stack detached and return. Stop with `down`.
+async function up(prefIp) {
+  const ip = prepare(prefIp);
   console.log(`Starting studio stack (LAN IP ${ip})...`);
   startSvc('mediamtx', paths.mediamtx, ['mediamtx/mediamtx.gen.yml'], paths.root);
   startSvc('control', process.execPath, svcArgs('control'), paths.root);
@@ -62,7 +67,7 @@ async function up(prefIp) {
   console.log(`  Phones:   https://${ip}:8443/`);
   console.log(`  Operator: https://localhost:8444/   (or https://${ip}:8444/)`);
   console.log('  Logs:     ./logs/*.log');
-  console.log('  Stop:     npm run down');
+  console.log('  Stop:     multicam down');
 }
 
 // Stop the stack by freeing its listening ports (catches the services however
@@ -92,12 +97,108 @@ function down() {
   console.log('Stack stopped.');
 }
 
+// Open a URL in the default browser (best-effort, non-blocking). Suppressed by
+// MULTICAM_NO_OPEN=1 (used by automated tests of the launcher).
+function openBrowser(url) {
+  if (process.env.MULTICAM_NO_OPEN === '1') return;
+  try {
+    const [cmd, args] = isWin ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin' ? ['open', [url]]
+        : ['xdg-open', [url]];
+    spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch { /* no browser — the URLs are printed anyway */ }
+}
+
+// A service spawned ATTACHED to this process (so closing the window/Ctrl+C takes
+// the whole studio down with it). Logs still go to ./logs.
+function startAttached(name, file, args) {
+  const out = openSync(join(paths.logs, `${name}.out.log`), 'w');
+  const err = openSync(join(paths.logs, `${name}.err.log`), 'w');
+  return spawn(file, args, { cwd: paths.root, stdio: ['ignore', out, err], windowsHide: true });
+}
+
+function pause(prompt = 'Press Enter to close...') {
+  return new Promise((resolve) => {
+    try {
+      process.stdout.write(prompt);
+      process.stdin.resume();
+      process.stdin.setEncoding('utf8');
+      process.stdin.once('data', () => resolve());
+    } catch { resolve(); }
+  });
+}
+
+// Double-click / no-arg launcher: a foreground supervisor. Starts the stack
+// attached, prints a status banner with the URLs, opens the dashboard, and keeps
+// the window open until the user quits (Ctrl+C / close / 'q') or a service dies —
+// then stops everything. On a startup error it pauses so the window doesn't just
+// vanish (the whole reason a double-clicked CLI is unfriendly).
+async function launch(prefIp) {
+  let ip;
+  try {
+    ip = prepare(prefIp);
+  } catch (e) {
+    console.error('\n  ' + e.message + '\n');
+    await pause();
+    process.exitCode = 1;
+    return;
+  }
+
+  const children = [
+    startAttached('mediamtx', paths.mediamtx, ['mediamtx/mediamtx.gen.yml']),
+    startAttached('control', process.execPath, svcArgs('control')),
+    startAttached('phone', process.execPath, svcArgs('server', 'phone-pwa', '8443')),
+    startAttached('operator', process.execPath, svcArgs('server', 'operator-dashboard', '8444')),
+  ];
+
+  console.log('');
+  console.log('  Wireless Multicam Studio — RUNNING');
+  console.log('  ----------------------------------');
+  console.log(`  Phones:   https://${ip}:8443/`);
+  console.log(`  Operator: https://localhost:8444/   (or https://${ip}:8444/)`);
+  console.log('');
+  console.log('  Opening the dashboard in your browser...');
+  console.log("  Close this window (or press Ctrl+C) to stop the studio.");
+  console.log('');
+  openBrowser('https://localhost:8444/');
+
+  let stopping = false;
+  const stop = async (code) => {
+    if (stopping) return;
+    stopping = true;
+    console.log('\n  Stopping studio...');
+    for (const c of children) { try { c.kill(); } catch { /* gone */ } }
+    try { down(); } catch { /* best effort */ }
+    if (code && IS_SEA) await pause();   // keep a failure visible on a double-click
+    process.exit(code);
+  };
+
+  process.on('SIGINT', () => { void stop(0); });
+  process.on('SIGTERM', () => { void stop(0); });
+  process.on('SIGHUP', () => { void stop(0); });
+  try { process.on('SIGBREAK', () => { void stop(0); }); } catch { /* not on this platform */ }
+  for (const c of children) {
+    c.on('exit', () => {
+      if (!stopping) { console.error('\n  A service stopped unexpectedly — shutting down. See logs/*.err.log'); void stop(1); }
+    });
+  }
+
+  // Keep the window open and offer a quit key.
+  try {
+    process.stdin.resume();
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (d) => { if (d.charCodeAt(0) === 3 || /^q/i.test(d.trim())) void stop(0); });
+  } catch { /* no stdin — the attached children keep us alive */ }
+}
+
 function usage() {
+  const inv = IS_SEA ? 'multicam' : 'node cli/index.mjs';
   console.log('Wireless Multicam Studio\n');
-  console.log('Usage: node cli/index.mjs <command> [--ip <addr>]\n');
-  console.log('  tools   download mkcert + MediaMTX for this OS/arch into ./tools');
+  console.log(`Usage: ${inv} <command> [--ip <addr>]\n`);
+  console.log('  start   start the studio and keep this window open (default when double-clicked)');
+  console.log('  tools   download mkcert + MediaMTX + ffmpeg for this OS/arch into ./tools');
   console.log('  certs   install the local CA and issue a LAN TLS cert');
-  console.log('  up      start the full stack (MediaMTX, control service, dev-servers)');
+  console.log('  up      start the full stack in the background (stop with `down`)');
   console.log('  down    stop the stack');
 }
 
@@ -108,9 +209,12 @@ export async function runCli(args) {
     switch (cmd) {
       case 'tools': await fetchTools(); break;
       case 'certs': makeCerts(getLanIP(prefIp)); break;
+      case 'start': await launch(prefIp); break;
       case 'up': await up(prefIp); break;
       case 'down': down(); break;
+      case 'help': case '--help': case '-h': usage(); break;
       default:
+        if (!cmd && IS_SEA) { await launch(prefIp); break; }   // double-clicked exe -> launcher
         usage();
         if (cmd) process.exitCode = 1;
     }

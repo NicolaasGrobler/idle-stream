@@ -25,6 +25,8 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
-    "postject": "^1.0.0-alpha.6"
+    "png-to-ico": "^3.0.1",
+    "postject": "^1.0.0-alpha.6",
+    "rcedit": "^5.0.2"
   }
 }

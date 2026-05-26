@@ -65,8 +65,36 @@ async function makeExe() {
   });
 
   if (!isWin) chmodSync(EXE, 0o755);
+
+  await stampIcon();
+
   console.log(`\nSingle-exe ready -> ${EXE}`);
   console.log('Run it from a working dir laid out like the repo (tools/, certs/, phone-pwa/, operator-dashboard/, mediamtx/).');
+}
+
+// Give the Windows exe a real icon + metadata (it's otherwise a copy of node.exe
+// and shows Node's icon). rcedit edits PE resources, so this is Windows-only.
+async function stampIcon() {
+  if (!isWin) { console.log('Icon step skipped (Windows-only; rcedit edits PE resources).'); return; }
+  try {
+    const { default: pngToIco } = await import('png-to-ico');
+    const { rcedit } = await import('rcedit');
+    const ico = await pngToIco(join(ROOT, 'icon.png'));
+    const icoPath = join(DIST, 'multicam.ico');
+    writeFileSync(icoPath, ico);
+    await rcedit(EXE, {
+      icon: icoPath,
+      'version-string': {
+        ProductName: 'Wireless Multicam Studio',
+        FileDescription: 'Wireless Multicam Studio',
+        CompanyName: 'OpenIdle',
+        OriginalFilename: 'multicam.exe',
+      },
+    });
+    console.log('Stamped exe icon + version metadata.');
+  } catch (e) {
+    console.warn('Icon step skipped:', e.message);
+  }
 }
 
 const bundleOnly = process.argv.includes('--bundle-only');

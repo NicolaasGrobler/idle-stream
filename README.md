@@ -92,16 +92,24 @@ Package the whole thing into one executable so the operator's machine needs
 neither Node nor `npm install`:
 
 ```bash
-npm run build:exe    # -> dist/multicam(.exe)   (uses esbuild + Node SEA)
+npm run build:exe    # -> dist/multicam(.exe)   (uses esbuild + Node SEA; Windows also gets an icon)
 ```
 
 Drop `multicam(.exe)` into a folder laid out like the repo (with `tools/`,
 `phone-pwa/`, `operator-dashboard/`, `mediamtx/`, and writable `certs/ data/
-recordings/ exports/ logs/`) and run `multicam up` / `multicam down` — same
-commands, no Node required. The mkcert/MediaMTX/ffmpeg binaries stay external in
-`tools/`. See [plan.md](plan.md#single-exe-build-no-node-install-to-run) for how
-the build works. (Verified on Windows; the macOS/Linux build paths are written
-but unverified.)
+recordings/ exports/ logs/`) — the mkcert/MediaMTX/ffmpeg binaries stay external
+in `tools/`. Then either:
+
+- **Double-click it** — it starts the whole studio, opens the dashboard, and
+  keeps a window open showing the phone/operator URLs. Close the window (or
+  press Ctrl+C) to stop everything.
+- Or from a terminal: `multicam up` / `multicam down` (background), or
+  `multicam start` (same as double-click). No Node required.
+
+First run on a machine still needs `multicam certs` once (installs the local CA).
+See [plan.md](plan.md#single-exe-build-no-node-install-to-run) for how the build
+works. (Verified on Windows; the macOS/Linux build paths are written but
+unverified.)
 
 ## Using it
 
