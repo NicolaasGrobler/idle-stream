@@ -12,7 +12,11 @@
     "setup": "node cli/index.mjs tools",
     "certs": "node cli/index.mjs certs",
     "up": "node cli/index.mjs up",
-    "down": "node cli/index.mjs down"
+    "down": "node cli/index.mjs down",
+    "test": "node --test \"control/test/*.test.mjs\""
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
   },
   "engines": {
     "node": ">=18"

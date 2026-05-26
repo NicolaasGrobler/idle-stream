@@ -1,0 +1,494 @@
+// Control service: coordinates phones and the operator dashboard.
+//
+// Phones connect (armed) and wait. The operator manages the camera list (add /
+// rename / remove), assigns each phone to a camera, starts the preview (phones
+// begin publishing via WHIP), then starts/stops recording. Two WebSocket
+// endpoints, proxied same-origin by the dev-server so phones/browser only ever
+// see the trusted origin. Cameras are persisted to data/cameras.json.
+import { createServer } from 'node:http';
+import { createReadStream, statSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { randomBytes } from 'node:crypto';
+
+import { SessionState, makeCamera, makePhone } from './state.mjs';
+import { MediaMTX } from './mediamtx.mjs';
+import * as camerasStore from './cameras.mjs';
+import * as switchesStore from './switches.mjs';
+import * as recordingsStore from './recordings.mjs';
+
+// Auto-stop a recording this many seconds after the last publisher drops (e.g.
+// the event ended). The grace window tolerates brief WiFi blips — a phone that
+// reconnects within it resumes publishing and the timer resets.
+const AUTO_STOP_GRACE_S = 30;
+
+const randId = () => randomBytes(4).toString('hex');   // 8 hex chars, like uuid4().hex[:8]
+const round3 = (x) => Math.round(x * 1000) / 1000;
+const isoOf = (ts) =>
+  ts === null || ts === undefined ? null : new Date(ts * 1000).toISOString().replace('Z', '+00:00');
+
+// Build a control service around a MediaMTX client. Factored so tests can drive
+// the handlers with a stubbed MediaMTX and a fake WebSocket, and inject clocks.
+export function createService(mtx, opts = {}) {
+  const autoStopGraceS = opts.autoStopGraceS ?? AUTO_STOP_GRACE_S;
+  const now = opts.now ?? (() => Date.now() / 1000);            // wall clock (epoch seconds)
+  const monotonic = opts.monotonic ?? (() => performance.now() / 1000);
+  // Persistence is injectable so tests stay hermetic (no writes to data/).
+  const saveCameras = opts.saveCameras ?? camerasStore.save;
+  const appendSession = opts.appendSession ?? switchesStore.appendSession;
+  const loadCameras = opts.loadCameras ?? camerasStore.load;
+
+  const state = new SessionState();
+  const operators = new Set();
+  const phoneSockets = new Map();
+  let emptySince = null;
+
+  function wsSend(ws, payload) {
+    try {
+      ws.send(JSON.stringify(payload), () => {});
+    } catch {
+      /* socket gone */
+    }
+  }
+
+  function broadcastState() {
+    const msg = JSON.stringify({ type: 'state', ...state.snapshot() });
+    for (const ws of [...operators]) {
+      try {
+        ws.send(msg, (err) => { if (err) operators.delete(ws); });
+      } catch {
+        operators.delete(ws);
+      }
+    }
+  }
+
+  function sendPhone(phoneId, payload) {
+    const ws = phoneSockets.get(phoneId);
+    if (ws) wsSend(ws, payload);
+  }
+
+  function assignedMsg(slot) {
+    return { type: 'assigned', slot, label: slot ? state.labelFor(slot) : null };
+  }
+
+  function persistCameras() {
+    saveCameras(state.cameras);
+  }
+
+  // Turn recording off for every path and finalize the switch-log session.
+  // Shared by the operator's Stop Recording and the reconcile loop's auto-clear.
+  async function stopRecording() {
+    for (const cam of state.cameraIds()) {
+      await mtx.setRecord(cam, false);
+    }
+    if (state.sessionId) {                       // finalize the editorial switch log
+      const stopped = now();
+      appendSession({
+        sessionId: state.sessionId,
+        startedAt: state.recordingStartedAt,
+        startedAtIso: isoOf(state.recordingStartedAt),
+        stoppedAt: stopped,
+        stoppedAtIso: isoOf(stopped),
+        durationSec: round3(stopped - (state.recordingStartedAt || stopped)),
+        cameras: Object.entries(state.cameraRecordStarted).map(([cid, ts]) => ({
+          id: cid,
+          label: state.labelFor(cid) || cid,
+          recordStartedAt: ts,
+          recordStartedAtIso: isoOf(ts),
+        })),
+        switches: state.switches,
+      });
+    }
+    state.recording = false;
+    state.recordingStartedAt = null;
+    state.sessionId = null;
+    state.cameraRecordStarted = {};
+    state.switches = [];
+    for (const pid of [...phoneSockets.keys()]) {
+      sendPhone(pid, { type: 'recording', on: false });
+    }
+    broadcastState();
+  }
+
+  // ----- Phone endpoint -----------------------------------------------------
+  // Attaches handlers to a WebSocket-like object. Returns a controller so tests
+  // can feed messages / disconnect deterministically; the real ws path drives
+  // the same internal handlers via 'message' / 'close' events.
+  function connectPhone(ws) {
+    let phoneId = null;
+    let chain = Promise.resolve();
+    const enqueue = (fn) => {
+      const next = chain.then(fn).catch(() => {});
+      chain = next;
+      return next;
+    };
+
+    async function handleRaw(raw) {
+      let msg;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (msg.type === 'register' && phoneId === null) {
+        // The phone supplies its own persistent id (localStorage) so a reconnect
+        // re-attaches to the same record — keeping its slot — instead of
+        // appearing as a brand-new phone.
+        phoneId = String(msg.phoneId ?? '').trim() || randId();
+        const old = phoneSockets.get(phoneId);
+        if (old && old !== ws) {                 // a stale socket for this id
+          try { old.close(); } catch { /* ignore */ }
+        }
+        phoneSockets.set(phoneId, ws);
+        const name = String(msg.name ?? '').trim();
+        let p = state.phones.get(phoneId);
+        if (p) {                                 // reconnect: revive the existing record
+          p.connected = true;
+          if (name) p.name = name;
+        } else {
+          p = makePhone(phoneId, name || `Phone ${phoneId}`);
+          state.phones.set(phoneId, p);
+        }
+        wsSend(ws, { type: 'registered', phoneId, recording: state.recording });
+        if (p.slot) {                            // restore the armed state on the phone
+          wsSend(ws, assignedMsg(p.slot));
+          if (state.recording) {                 // rejoin an in-progress recording
+            wsSend(ws, { type: 'command', action: 'publish', slot: p.slot });
+          }
+        }
+        broadcastState();
+      } else if (phoneId !== null && msg.type === 'status') {
+        const p = state.phones.get(phoneId);
+        if (p) {
+          p.publishing = Boolean(msg.publishing);
+          const b = msg.battery;
+          p.battery = b && typeof b === 'object' && !Array.isArray(b) ? b : null;
+          broadcastState();
+        }
+      }
+    }
+
+    async function handleClose() {
+      // Keep the phone in the roster (marked offline) so its slot is held for
+      // when it reconnects. Guard against a newer socket having taken over.
+      if (phoneId !== null && phoneSockets.get(phoneId) === ws) {
+        phoneSockets.delete(phoneId);
+        const p = state.phones.get(phoneId);
+        if (p) {
+          p.connected = false;
+          p.publishing = false;
+        }
+        broadcastState();
+      }
+    }
+
+    ws.on('message', (data) => enqueue(() => handleRaw(data)));
+    ws.on('close', () => enqueue(handleClose));
+    ws.on('error', () => {});
+
+    return {
+      feed: (msg) => enqueue(() => handleRaw(Buffer.from(JSON.stringify(msg)))),
+      disconnect: () => enqueue(handleClose),
+    };
+  }
+
+  // ----- Operator endpoint --------------------------------------------------
+  async function handleOperatorMessage(msg) {
+    const t = msg.type;
+
+    // ---- camera management ----
+    if (t === 'addCamera') {
+      const label = String(msg.label ?? '').trim() || `Camera ${state.cameras.length + 1}`;
+      const camId = state.nextCameraId();
+      state.cameras.push(makeCamera(camId, label));
+      await mtx.addPath(camId);
+      persistCameras();
+      broadcastState();
+    } else if (t === 'renameCamera') {
+      const cid = msg.id;
+      const label = String(msg.label ?? '').trim();
+      if (label) {
+        for (const c of state.cameras) {
+          if (c.id === cid) c.label = label;
+        }
+        persistCameras();
+        // let an assigned phone update its displayed label
+        const owner = state.slotOwner(cid);
+        if (owner) sendPhone(owner, assignedMsg(cid));
+        broadcastState();
+      }
+    } else if (t === 'removeCamera') {
+      const cid = msg.id;
+      if (state.cameraIds().includes(cid)) {
+        state.cameras = state.cameras.filter((c) => c.id !== cid);
+        for (const p of state.phones.values()) {
+          if (p.slot === cid) {
+            p.slot = null;
+            sendPhone(p.id, assignedMsg(null));
+          }
+        }
+        if (state.recording) await mtx.setRecord(cid, false);
+        await mtx.deletePath(cid);
+        persistCameras();
+        broadcastState();
+      }
+
+    // ---- slot assignment ----
+    } else if (t === 'assign') {
+      const pid = msg.phoneId;
+      const slot = msg.slot;
+      if (state.phones.has(pid) && state.cameraIds().includes(slot)) {
+        for (const p of state.phones.values()) {   // one phone per slot: evict current holder
+          if (p.slot === slot && p.id !== pid) {
+            p.slot = null;
+            sendPhone(p.id, assignedMsg(null));
+          }
+        }
+        state.phones.get(pid).slot = slot;
+        sendPhone(pid, assignedMsg(slot));
+        broadcastState();
+      }
+    } else if (t === 'unassign') {
+      const pid = msg.phoneId;
+      if (state.phones.has(pid)) {
+        state.phones.get(pid).slot = null;
+        sendPhone(pid, assignedMsg(null));
+        broadcastState();
+      }
+    } else if (t === 'removePhone') {
+      // Only an offline phone can be dropped from the roster; a connected phone
+      // is managed via unassign so we don't strand its open socket.
+      const pid = msg.phoneId;
+      const p = state.phones.get(pid);
+      if (p && !p.connected) {
+        state.phones.delete(pid);
+        broadcastState();
+      }
+
+    // ---- preview / record ----
+    } else if (t === 'startPreview') {
+      const scope = msg.phoneId ?? null;
+      for (const p of state.phones.values()) {
+        if (p.slot && (scope === null || p.id === scope)) {
+          sendPhone(p.id, { type: 'command', action: 'publish', slot: p.slot });
+        }
+      }
+    } else if (t === 'stopPreview') {
+      const scope = msg.phoneId ?? null;
+      for (const p of state.phones.values()) {
+        if (scope === null || p.id === scope) {
+          sendPhone(p.id, { type: 'command', action: 'stop' });
+        }
+      }
+    } else if (t === 'startRecording') {
+      if (state.recording) return;                // already recording — don't reset the session
+      const ready = await mtx.readyPaths();
+      const cams = [...new Set(
+        [...state.phones.values()].filter((p) => p.slot && ready[p.slot]).map((p) => p.slot),
+      )].sort();
+      if (!cams.length) return;
+      state.cameraRecordStarted = {};
+      for (const cam of cams) {
+        await mtx.setRecord(cam, true);
+        state.cameraRecordStarted[cam] = now();   // ~synchronized; per-cam for post alignment
+      }
+      state.recording = true;
+      state.recordingStartedAt = Math.min(...Object.values(state.cameraRecordStarted));
+      state.sessionId = randId();
+      state.switches = [];
+      for (const pid of [...phoneSockets.keys()]) {
+        sendPhone(pid, { type: 'recording', on: true });
+      }
+      broadcastState();
+    } else if (t === 'switch') {
+      const cam = msg.camId;
+      if (state.recording && state.cameraIds().includes(cam)) {
+        // ignore a repeat take of the camera already on program — keeps the log clean
+        const last = state.switches[state.switches.length - 1];
+        if (!last || last.camId !== cam) {
+          const ts = now();
+          state.switches.push({
+            t: ts,
+            offset: round3(ts - (state.recordingStartedAt || ts)),
+            camId: cam,
+            label: state.labelFor(cam),
+          });
+          broadcastState();
+        }
+      }
+    } else if (t === 'stopRecording') {
+      await stopRecording();
+    }
+  }
+
+  function connectOperator(ws) {
+    operators.add(ws);
+    wsSend(ws, { type: 'state', ...state.snapshot() });
+    let chain = Promise.resolve();
+    const enqueue = (fn) => {
+      const next = chain.then(fn).catch(() => {});
+      chain = next;
+      return next;
+    };
+
+    ws.on('message', (data) => enqueue(async () => {
+      let msg;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      await handleOperatorMessage(msg);
+    }));
+    ws.on('close', () => operators.delete(ws));
+    ws.on('error', () => {});
+
+    return {
+      feed: (msg) => enqueue(() => handleOperatorMessage(msg)),
+      disconnect: () => { operators.delete(ws); },
+    };
+  }
+
+  // ----- Reconcile with MediaMTX --------------------------------------------
+  async function reconcileOnce() {
+    const ready = await mtx.readyPaths();
+    for (const c of state.cameras) {              // survive a MediaMTX restart
+      if (!(c.id in ready)) await mtx.addPath(c.id);
+    }
+    let changed = false;
+    for (const p of state.phones.values()) {
+      const want = Boolean(p.slot && ready[p.slot]);
+      if (p.publishing !== want) {
+        p.publishing = want;
+        changed = true;
+      }
+    }
+    if (changed) broadcastState();
+
+    // Auto-clear a recording left running after every publisher has dropped.
+    if (state.recording && ![...state.phones.values()].some((p) => p.publishing)) {
+      if (emptySince === null) {
+        emptySince = monotonic();
+      } else if (monotonic() - emptySince >= autoStopGraceS) {
+        await stopRecording();
+        emptySince = null;
+      }
+    } else {
+      emptySince = null;
+    }
+  }
+
+  async function startup() {
+    state.cameras = loadCameras();
+    for (const c of state.cameras) {
+      await mtx.addPath(c.id);
+    }
+  }
+
+  return {
+    state,
+    operators,
+    phoneSockets,
+    connectPhone,
+    connectOperator,
+    handleOperatorMessage,
+    stopRecording,
+    reconcileOnce,
+    startup,
+    broadcastState,
+  };
+}
+
+// ----- HTTP API (read-only; proxied to the dashboard under /api) ------------
+function sendJson(res, status, body) {
+  const buf = Buffer.from(JSON.stringify(body));
+  res.writeHead(status, { 'content-type': 'application/json', 'content-length': buf.length });
+  res.end(buf);
+}
+
+function handleHttp(svc, req, res) {
+  const url = new URL(req.url, 'http://127.0.0.1');
+  const path = url.pathname;
+
+  if (req.method === 'GET' && path === '/healthz') {
+    sendJson(res, 200, {
+      ok: true,
+      cameras: svc.state.cameras.length,
+      phones: svc.state.phones.size,
+      recording: svc.state.recording,
+    });
+    return;
+  }
+  if (req.method === 'GET' && path === '/api/recordings') {
+    sendJson(res, 200, { cameras: recordingsStore.listRecordings() });
+    return;
+  }
+  if (req.method === 'GET' && path === '/api/sessions') {
+    // The raw switch-log array — also what the dashboard offers as switches.json.
+    sendJson(res, 200, switchesStore.loadSessions());
+    return;
+  }
+  if (req.method === 'GET' && path === '/api/preflight') {
+    sendJson(res, 200, recordingsStore.preflight());
+    return;
+  }
+  if (req.method === 'GET' && path === '/api/recordings/download') {
+    const cam = url.searchParams.get('cam') ?? '';
+    const name = url.searchParams.get('name') ?? '';
+    const file = recordingsStore.resolveRecording(cam, name);
+    if (file === null) {
+      sendJson(res, 404, { error: 'not found' });
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'video/mp4',
+      'content-length': statSync(file).size,
+      'content-disposition': `attachment; filename="${cam}_${name}"`,
+    });
+    createReadStream(file).pipe(res);
+    return;
+  }
+  sendJson(res, 404, { error: 'not found' });
+}
+
+// ----- Main: wire the real HTTP + WebSocket server --------------------------
+async function main() {
+  const { WebSocketServer } = await import('ws');
+  const mtx = new MediaMTX();
+  const svc = createService(mtx);
+  await svc.startup();
+
+  const server = createServer((req, res) => handleHttp(svc, req, res));
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    const path = (req.url || '').split('?')[0];
+    if (path === '/ws/phone') {
+      wss.handleUpgrade(req, socket, head, (ws) => svc.connectPhone(ws));
+    } else if (path === '/ws/operator') {
+      wss.handleUpgrade(req, socket, head, (ws) => svc.connectOperator(ws));
+    } else {
+      socket.destroy();
+    }
+  });
+
+  const interval = setInterval(() => { void svc.reconcileOnce(); }, 2000);
+  const shutdown = () => {
+    clearInterval(interval);
+    mtx.close();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1000).unref();
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
+  server.listen(9000, '127.0.0.1', () => {
+    console.log('Control service on http://127.0.0.1:9000  (ws: /ws/phone, /ws/operator)');
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
