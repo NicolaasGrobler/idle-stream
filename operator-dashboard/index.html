@@ -20,7 +20,22 @@
     button.stop { background: #2a2a2a; }
     button.sm { padding: 5px 9px; font-size: 12px; }
     .layout { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
-    .layout select { font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
+    /* Custom dropdown (replaces native <select>) */
+    .dd { position: relative; }
+    .dd-btn { width: 100%; font: inherit; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 10px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; cursor: pointer; }
+    .dd-caret { flex: none; color: #888; transition: transform 0.15s ease; }
+    .dd.open .dd-caret { transform: rotate(180deg); }
+    .dd.open .dd-btn { border-color: #4ade80; }
+    .dd-menu { display: none; position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; min-width: 100%;
+      background: #0f0f0f; border: 1px solid #333; border-radius: 8px; padding: 4px; box-shadow: 0 10px 28px rgba(0,0,0,0.55); max-height: 260px; overflow: auto; white-space: nowrap; }
+    .dd.open .dd-menu { display: block; }
+    .dd-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .dd-item:hover { background: #1d1d1d; }
+    .dd-item.sel { color: #4ade80; }
+    .dd-item.dis { color: #555; cursor: default; }
+    .dd-item.dis:hover { background: transparent; }
+    .dd.compact .dd-btn { padding: 6px 9px; font-size: 12px; }
     main { flex: 1; display: flex; min-height: 0; }
     #side { width: 320px; border-right: 1px solid #222; padding: 12px; overflow: auto; }
     #side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 4px 0 10px; display: flex; align-items: center; }
@@ -52,14 +67,7 @@
     <span id="conn" class="badge muted">connecting…</span>
     <span id="live" class="badge muted">0 live</span>
     <span id="recstate" class="badge muted">not recording</span>
-    <label class="layout">Layout
-      <select id="cols">
-        <option value="auto">Auto</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
-      </select>
-    </label>
+    <label class="layout">Layout <span id="colsMount"></span></label>
     <div class="spacer"></div>
     <button id="previewAll" class="go">Start Preview (all)</button>
     <button id="stopAll" class="stop">Stop Preview</button>
@@ -85,6 +93,39 @@
     const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
     const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+    // While the operator is mid-interaction in the side panel (dropdown open or
+    // typing a camera name), defer side-panel re-renders so we don't wipe it.
+    let sidePanelBusy = false;
+    function setBusy(b) { sidePanelBusy = b; if (!b) renderControl(); }
+
+    // Lightweight custom dropdown — no library, matches the theme.
+    // opts: [{value, label, disabled}]. Returns { el }.
+    function createDropdown({ value, opts, onChange, placeholder, compact, onOpenChange }) {
+      const root = document.createElement('div');
+      root.className = 'dd' + (compact ? ' compact' : '');
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'dd-btn';
+      const menu = document.createElement('div');
+      menu.className = 'dd-menu';
+      root.append(btn, menu);
+      const labelOf = (v) => { const o = opts.find((o) => o.value === v); return o ? o.label : (placeholder || 'Select'); };
+      btn.innerHTML = '<span class="dd-label"></span>'
+        + '<svg class="dd-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+      btn.querySelector('.dd-label').textContent = labelOf(value);
+      for (const o of opts) {
+        const item = document.createElement('div');
+        item.className = 'dd-item' + (o.value === value ? ' sel' : '') + (o.disabled ? ' dis' : '');
+        item.textContent = o.label;
+        if (!o.disabled) item.addEventListener('click', () => { close(); onChange(o.value); });
+        menu.appendChild(item);
+      }
+      function open() { root.classList.add('open'); if (onOpenChange) onOpenChange(true); document.addEventListener('pointerdown', outside, true); }
+      function close() { root.classList.remove('open'); if (onOpenChange) onOpenChange(false); document.removeEventListener('pointerdown', outside, true); }
+      function outside(e) { if (!root.contains(e.target)) close(); }
+      btn.addEventListener('click', (e) => { e.stopPropagation(); root.classList.contains('open') ? close() : open(); });
+      return { el: root };
+    }
+
     // ---------- Control WebSocket ----------
     let ws = null, wsDelay = 1000;
     function connectWS() {
@@ -97,6 +138,7 @@
 
     // ---------- Control panel ----------
     function renderControl() {
+      if (sidePanelBusy) return;            // don't wipe an open dropdown / a field being typed in
       const cams = lastState.cameras || [];
 
       // Camera management
@@ -109,7 +151,8 @@
           <input value="${escapeHtml(c.label)}" />
           <button class="sm stop" title="Remove">×</button>`;
         const input = row.querySelector('input');
-        const commit = () => { const v = input.value.trim(); if (v && v !== c.label) send({ type: 'renameCamera', id: c.id, label: v }); };
+        const commit = () => { setBusy(false); const v = input.value.trim(); if (v && v !== c.label) send({ type: 'renameCamera', id: c.id, label: v }); };
+        input.addEventListener('focus', () => setBusy(true));
         input.addEventListener('blur', commit);
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
         row.querySelector('button').addEventListener('click', () => {
@@ -127,17 +170,18 @@
       for (const p of phones) {
         const div = document.createElement('div');
         div.className = 'card phone';
-        const opts = ['<option value="">Unassigned</option>'].concat(cams.map((c) => {
-          const otherOwner = taken[c.id] && taken[c.id] !== p.id;
-          return `<option value="${c.id}"${p.slot === c.id ? ' selected' : ''}${otherOwner ? ' disabled' : ''}>${escapeHtml(c.label)}${otherOwner ? ' (taken)' : ''}</option>`;
-        })).join('');
         div.innerHTML = `<div class="name">${escapeHtml(p.name)}
-          <span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span></div>
-          <select>${opts}</select>`;
-        div.querySelector('select').addEventListener('change', (e) => {
-          if (e.target.value) send({ type: 'assign', phoneId: p.id, slot: e.target.value });
-          else send({ type: 'unassign', phoneId: p.id });
+          <span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span></div>`;
+        const opts = [{ value: '', label: 'Unassigned' }].concat(cams.map((c) => {
+          const otherOwner = taken[c.id] && taken[c.id] !== p.id;
+          return { value: c.id, label: c.label + (otherOwner ? ' (taken)' : ''), disabled: !!otherOwner };
+        }));
+        const dd = createDropdown({
+          value: p.slot || '', opts, placeholder: 'Unassigned',
+          onOpenChange: setBusy,
+          onChange: (v) => { if (v) send({ type: 'assign', phoneId: p.id, slot: v }); else send({ type: 'unassign', phoneId: p.id }); },
         });
+        div.appendChild(dd.el);
         host.appendChild(div);
       }
 
@@ -170,14 +214,20 @@
     const grid = $('grid');
 
     // Grid column layout (Auto / fixed N per row), remembered across sessions.
-    const colsSel = $('cols');
     function applyCols(v) {
       grid.style.gridTemplateColumns = v === 'auto' ? 'repeat(auto-fit, minmax(300px, 1fr))' : `repeat(${v}, 1fr)`;
     }
-    const savedCols = localStorage.getItem('gridCols') || 'auto';
-    colsSel.value = savedCols;
+    let savedCols = localStorage.getItem('gridCols') || 'auto';
+    function mountColsDropdown() {
+      const dd = createDropdown({
+        value: savedCols, compact: true,
+        opts: [{ value: 'auto', label: 'Auto' }, { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' }],
+        onChange: (v) => { savedCols = v; localStorage.setItem('gridCols', v); applyCols(v); $('colsMount').innerHTML = ''; mountColsDropdown(); },
+      });
+      $('colsMount').appendChild(dd.el);
+    }
     applyCols(savedCols);
-    colsSel.addEventListener('change', () => { localStorage.setItem('gridCols', colsSel.value); applyCols(colsSel.value); });
+    mountColsDropdown();
 
     function syncGrid() {
       const cams = lastState.cameras || [];
