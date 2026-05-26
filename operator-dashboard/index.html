@@ -397,21 +397,33 @@
       return `${mon} ${+m[3]}, ${m[4]}:${m[5]}:${m[6]}`;
     };
 
-    function renderSessionsTab(sessions, recCams) {
+    function renderSessionsTab(sessions, selected) {
       if (!sessions.length) return '<div class="empty">No sessions recorded yet. They appear here after you Record → Stop.</div>';
-      let html = `<div class="rec-sub">${sessions.length} session${sessions.length === 1 ? '' : 's'} · <a href="/api/sessions" download="switches.json">Download switches.json</a></div>`;
-      html += sessions.map((s, i) => {
-        const takes = (s.switches || []).length;
-        const chips = (s.cameras || []).map((c) =>
-          `<span class="cam-chip"><i class="cam-dot" style="background:${colorForCam(c.id)}"></i>${escapeHtml(c.label || c.id)}</span>`).join('');
-        return `<div class="session-card"><div class="sc-main">
-          <div class="sc-title">${escapeHtml(sessionTitle(s))}</div>
-          <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'}</div>
-          <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
-        </div><button class="go sess-preview" data-idx="${i}">▶ Preview</button>`
-        + `<button class="sm stop sess-del" data-sid="${escapeHtml(s.sessionId || '')}" title="Delete session">🗑</button></div>`;
-      }).reverse().join('');
-      return html;
+      const sub = `<div class="rec-sub">${sessions.length} session${sessions.length === 1 ? '' : 's'} · <a href="/api/sessions" download="switches.json">Download switches.json</a></div>`;
+      // Camera sub-tabs: the union of cameras across all sessions (sessions carry
+      // their own labels, so this works even for cameras since renamed/removed).
+      const camMap = new Map();
+      for (const s of sessions) for (const c of (s.cameras || [])) if (!camMap.has(c.id)) camMap.set(c.id, c.label || c.id);
+      const cams = [...camMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+      const subtabs = cams.length ? ('<div class="clip-subtabs">'
+        + `<button class="clip-subtab${selected === 'all' ? ' active' : ''}" data-cam="all">All</button>`
+        + cams.map(([id, label]) => `<button class="clip-subtab${selected === id ? ' active' : ''}" data-cam="${escapeHtml(id)}">`
+          + `<i class="cam-dot" style="background:${colorForCam(id)}"></i>${escapeHtml(labelOfCam(id) || label)}</button>`).join('')
+        + '</div>') : '';
+      const cards = sessions.map((s, i) => ({ s, i }))
+        .filter(({ s }) => selected === 'all' || (s.cameras || []).some((c) => c.id === selected))
+        .map(({ s, i }) => {
+          const takes = (s.switches || []).length;
+          const chips = (s.cameras || []).map((c) =>
+            `<span class="cam-chip"><i class="cam-dot" style="background:${colorForCam(c.id)}"></i>${escapeHtml(c.label || c.id)}</span>`).join('');
+          return `<div class="session-card"><div class="sc-main">
+            <div class="sc-title">${escapeHtml(sessionTitle(s))}</div>
+            <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'}</div>
+            <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
+          </div><button class="go sess-preview" data-idx="${i}">▶ Preview</button>`
+          + `<button class="sm stop sess-del" data-idx="${i}" title="Delete session">🗑</button></div>`;
+        }).reverse().join('');
+      return sub + subtabs + (cards || '<div class="empty">No sessions for this camera.</div>');
     }
 
     function renderClipsTab(recCams, selected) {
@@ -460,6 +472,7 @@
       const tabs = [...overlay.querySelectorAll('.rec-tab')];
       let active = 'sessions';
       let clipCam = 'all';                 // selected camera sub-tab within Clips
+      let sessCam = 'all';                 // selected camera sub-tab within Sessions
       const data = { recCams: [], sess: [] };
       const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
       const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -470,11 +483,13 @@
       function renderTab() {
         tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === active));
         if (active === 'sessions') {
-          body.innerHTML = renderSessionsTab(data.sess, data.recCams);
+          body.innerHTML = renderSessionsTab(data.sess, sessCam);
+          body.querySelectorAll('.clip-subtab').forEach((b) =>
+            b.addEventListener('click', () => { sessCam = b.dataset.cam; renderTab(); }));
           body.querySelectorAll('.sess-preview').forEach((b) =>
             b.addEventListener('click', () => openSessionPreview(data.sess[Number(b.dataset.idx)], data.recCams)));
           body.querySelectorAll('.sess-del').forEach((b) =>
-            b.addEventListener('click', () => deleteSession(b.dataset.sid, load)));
+            b.addEventListener('click', () => deleteSession(data.sess[Number(b.dataset.idx)], data.recCams, load)));
         } else {
           body.innerHTML = renderClipsTab(data.recCams, clipCam);
           body.querySelectorAll('.clip-subtab').forEach((b) =>
@@ -518,20 +533,50 @@
       }
     }
 
-    // Delete one session (switch-log entry) after a confirmation; clips are kept.
-    async function deleteSession(sid, reload) {
-      if (!sid) return;
-      const ok = await showModal({ title: 'Delete session',
-        message: 'Remove this session from the switch log? The recorded clips are kept — delete those from the Clips tab.',
-        confirmLabel: 'Delete', danger: true });
-      if (!ok) return;
-      try {
-        const res = await fetch(`/api/sessions?id=${encodeURIComponent(sid)}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        if (reload) reload();
-      } catch (e) {
-        showModal({ title: 'Delete failed', message: e.message, confirmLabel: 'OK' });
-      }
+    // Delete one session (switch-log entry) after a confirmation. The session's
+    // clips are kept by default; an opt-in checkbox also deletes the per-camera
+    // clip files matched to this session (same mtime matching as the preview
+    // player). Custom modal — the themed showModal can't host a checkbox.
+    function deleteSession(session, recCams, reload) {
+      if (!session || !session.sessionId) return;
+      const sid = session.sessionId;
+      const matches = (session.cameras || [])
+        .map((c) => ({ cam: c.id, name: fileForCam(recCams, c.id, session) }))
+        .filter((m) => m.name);
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `<div class="modal">
+        <h3>Delete session</h3>
+        <p class="modal-msg">Remove "${escapeHtml(sessionTitle(session))}" from the switch log? This can't be undone.</p>
+        ${matches.length ? `<label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 14px;color:#bbb;font-size:14px;cursor:pointer">
+          <input type="checkbox" class="del-clips" style="margin-top:2px" />
+          <span>Also delete this session's ${matches.length} matched clip file${matches.length === 1 ? '' : 's'} (can't be undone)</span></label>`
+          : '<p class="modal-msg" style="color:#888;font-size:12px">No clip files matched this session.</p>'}
+        <div class="modal-actions">
+          <button class="stop sd-cancel">Cancel</button>
+          <button class="rec sd-ok">Delete</button>
+        </div></div>`;
+      document.body.appendChild(overlay);
+      const done = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const onKey = (e) => { if (e.key === 'Escape') done(); };
+      document.addEventListener('keydown', onKey, true);
+      overlay.querySelector('.sd-cancel').addEventListener('click', done);
+      overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) done(); });
+      overlay.querySelector('.sd-ok').addEventListener('click', async () => {
+        const alsoClips = matches.length && overlay.querySelector('.del-clips').checked;
+        done();
+        try {
+          const res = await fetch(`/api/sessions?id=${encodeURIComponent(sid)}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          if (alsoClips) {
+            await Promise.all(matches.map((m) =>
+              fetch(`/api/recordings/download?cam=${encodeURIComponent(m.cam)}&name=${encodeURIComponent(m.name)}`, { method: 'DELETE' }).catch(() => {})));
+          }
+          if (reload) reload();
+        } catch (e) {
+          showModal({ title: 'Delete failed', message: e.message, confirmLabel: 'OK' });
+        }
+      });
     }
 
     // ---------- Single-clip preview (native controls) ----------
@@ -643,26 +688,45 @@
 
       let sessionTime = 0, playing = false, activeId = undefined, lastMs = 0, raf = 0;
 
+      // A clip's footage can run out before its program segment ends (the phone
+      // dropped early, or the clip was trimmed/short). Past that point keep the
+      // timeline moving but show the black panel rather than a misleading frozen
+      // last frame. Optimistic while the clip's duration is still unknown.
+      const COVER_TOL = 0.3;   // a clip ending within this of a take still "covers" it
+      function clipCovers(id, t) {
+        const v = vids[id];
+        if (!v) return false;
+        const d = v.duration;
+        if (!isFinite(d) || d <= 0) return true;     // metadata not loaded yet
+        return t <= cams[id].delay + d + COVER_TOL;
+      }
+      // Black-panel text at session-time t: pre-roll, a camera with no clip on
+      // disk, or a clip whose footage ran out before the take ended.
+      function blackTextFor(t) {
+        const seg = segAt(t);
+        if (!seg.camId) return '— before first take —';
+        return vids[seg.camId] ? `${labelFor(seg.camId)} — footage ended` : `no footage for ${labelFor(seg.camId)}`;
+      }
+
       function showActive(id) {
         for (const [vid, v] of Object.entries(vids)) {
           const on = vid === id; v.classList.toggle('active', on); v.muted = !on; if (!on) v.pause();
         }
-        const seg = segAt(sessionTime);
         if (id && vids[id]) { camLabel.textContent = cams[id].label; camLabel.style.display = 'block'; black.style.display = 'none'; }
         else {
           camLabel.style.display = 'none'; black.style.display = 'flex';
-          black.textContent = seg.camId ? `no footage for ${labelFor(seg.camId)}` : '— before first take —';
+          black.textContent = blackTextFor(sessionTime);
         }
       }
       function setActiveFor(t) {
         const seg = segAt(t);
-        const id = (seg.camId && vids[seg.camId]) ? seg.camId : null;
+        const id = (seg.camId && vids[seg.camId] && clipCovers(seg.camId, t)) ? seg.camId : null;
         if (id !== activeId) {
           activeId = id;
           showActive(id);
           if (id) { try { vids[id].currentTime = Math.max(0, t - cams[id].delay); } catch {} if (playing) vids[id].play().catch(() => {}); }
         } else if (!id) {
-          black.textContent = seg.camId ? `no footage for ${labelFor(seg.camId)}` : '— before first take —';
+          black.textContent = blackTextFor(t);
         }
       }
       function ui() { fill.style.width = `${(100 * Math.min(sessionTime, dur)) / (dur || 1)}%`; timeEl.textContent = `${fmtOffset(sessionTime)} / ${fmtOffset(dur)}`; }
@@ -673,7 +737,7 @@
         if (a && !a.paused && !a.seeking) sessionTime = a.currentTime + cams[activeId].delay;
         else sessionTime += (ms - lastMs) / 1000;     // advance through black/missing footage
         lastMs = ms;
-        if (sessionTime >= dur) { sessionTime = dur; pause(); ui(); return; }
+        if (sessionTime >= dur) { sessionTime = dur; setActiveFor(dur); pause(); ui(); return; }
         setActiveFor(sessionTime);
         ui();
         raf = requestAnimationFrame(tick);
