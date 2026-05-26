@@ -211,10 +211,12 @@ Closing the window or pressing Ctrl+C (or `q`) stops every service — window op
 `down`). `multicam start` is the explicit form of the launcher.
 
 The **Go binaries stay external** in `tools/` (mkcert, mediamtx, ffmpeg). The exe
-isn't fully standalone: run it from a working directory laid out like the repo
-(`tools/`, `phone-pwa/`, `operator-dashboard/`, `mediamtx/`, and the writable
-`certs/ data/ recordings/ exports/ logs/`). It replaces the Node install +
-`node_modules` + the `.mjs` sources, not the asset/working dirs.
+isn't fully standalone: it must sit in a folder laid out like the repo (`tools/`,
+`phone-pwa/`, `operator-dashboard/`, `mediamtx/`, and the writable `certs/ data/
+recordings/ exports/ logs/`). It **anchors to its own folder** (`MULTICAM_ROOT`
+defaults to `dirname(process.execPath)`), not the working directory — so a
+double-click works even though Explorer's cwd is unreliable. It replaces the Node
+install + `node_modules` + the `.mjs` sources, not the asset/working dirs.
 
 ## Build Status
 

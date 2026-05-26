@@ -85,7 +85,8 @@ async function makeExe() {
   rmSync(WORK, { recursive: true, force: true });
 
   console.log(`\nSingle-exe ready -> ${EXE}`);
-  console.log('Run it from a working dir laid out like the repo (tools/, certs/, phone-pwa/, operator-dashboard/, mediamtx/).');
+  console.log('Place it in a folder containing tools/, phone-pwa/, operator-dashboard/, mediamtx/ and the');
+  console.log('writable certs/ data/ recordings/ exports/ logs/ (it anchors to its own folder, not the cwd).');
 }
 
 // Give the Windows exe a real icon + metadata (it's otherwise a copy of node.exe

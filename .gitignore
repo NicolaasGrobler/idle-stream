@@ -30,6 +30,10 @@ mediamtx/mediamtx.gen.yml
 # Node
 node_modules/
 dist/
+
+# Built single-exe (regenerate with npm run build:exe)
+/multicam
+/multicam.exe
 .vite/
 
 # OS / editor

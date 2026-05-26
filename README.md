@@ -98,7 +98,8 @@ npm run build:exe    # -> dist/multicam(.exe)   (uses esbuild + Node SEA; Window
 Drop `multicam(.exe)` into a folder laid out like the repo (with `tools/`,
 `phone-pwa/`, `operator-dashboard/`, `mediamtx/`, and writable `certs/ data/
 recordings/ exports/ logs/`) — the mkcert/MediaMTX/ffmpeg binaries stay external
-in `tools/`. Then either:
+in `tools/`. The exe anchors to **its own folder**, so a double-click works
+regardless of where Explorer launches it from. Then either:
 
 - **Double-click it** — it starts the whole studio, opens the dashboard, and
   keeps a window open showing the phone/operator URLs. Close the window (or

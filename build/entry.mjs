@@ -6,8 +6,13 @@
 //   multicam <tools|certs|up|down>   -> the CLI
 // The internal subcommands are how `up` launches the whole stack from this one
 // binary (process.execPath is the exe; spawned children inherit the env below).
+import { dirname } from 'node:path';
+
 process.env.MULTICAM_SEA = '1';
-if (!process.env.MULTICAM_ROOT) process.env.MULTICAM_ROOT = process.cwd();
+// Anchor to the FOLDER THE EXE LIVES IN, not the working directory: when the exe
+// is double-clicked, Explorer's cwd is unreliable (often System32), but the exe
+// sits next to tools/, phone-pwa/, certs/, etc. An explicit MULTICAM_ROOT wins.
+if (!process.env.MULTICAM_ROOT) process.env.MULTICAM_ROOT = dirname(process.execPath);
 
 // Dynamic imports (not static) so the env above is set before any module
 // computes its disk root. An async IIFE avoids top-level await (unsupported in
