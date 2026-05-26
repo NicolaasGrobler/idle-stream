@@ -14,7 +14,7 @@ sports, panel discussions, podcast and interview setups.
 
 Phones publish camera + mic over **WebRTC (WHIP)** to **[MediaMTX](https://github.com/bluenviron/mediamtx)**,
 which records each stream **copy-only** (no re-encoding — near-zero CPU, original
-quality). A small FastAPI control service coordinates everyone (assign cameras,
+quality). A small Node control service coordinates everyone (assign cameras,
 arm → preview → record, synchronized start). The operator dashboard shows all
 feeds live (WHEP) and logs camera switches. Everything runs on the LAN, offline.
 
@@ -26,7 +26,7 @@ graph LR
   end
   subgraph Laptop["Laptop (LAN, offline)"]
     EDGE["Node dev-servers (TLS + reverse proxy)<br/>phones :8443 · operator :8444"]
-    CTRL["Control service (FastAPI) :9000"]
+    CTRL["Control service (Node) :9000"]
     MMTX["MediaMTX<br/>WHIP/WHEP · API · UDP media"]
     DISK[("recordings/&lt;cam&gt;/*.mp4")]
   end
@@ -46,21 +46,17 @@ For the full design rationale and the decisions behind it, see **[plan.md](plan.
 ## Requirements
 
 - A laptop/desktop (**Windows, macOS, or Linux**) on the same WiFi/LAN as the phones.
-- **Node.js 18+** and **Python 3.10+** installed. (`tar` is also needed for the
-  tool download — built in on macOS, Linux, and Windows 10+.)
+- **Node.js 18+** installed. (`tar` is also needed for the tool download — built
+  in on macOS, Linux, and Windows 10+.)
 - One or more phones with a modern browser (**iOS Safari** or **Android Chrome**).
 - A network where the laptop has a stable private IP (a static DHCP lease is ideal).
 
 ## Setup (one-time)
 
 ```bash
+npm install          # install the one runtime dependency (ws)
 npm run setup        # download mkcert + MediaMTX for your OS/arch into tools/
 npm run certs        # install a local CA + issue a LAN cert (auto-detects your IP)
-
-# control-service Python deps:
-python -m venv control/.venv
-control/.venv/bin/pip install -r control/requirements.txt          # macOS / Linux
-# control\.venv\Scripts\pip install -r control\requirements.txt    # Windows
 ```
 
 > On Windows you can alternatively use the PowerShell scripts in `setup\` and
@@ -148,7 +144,7 @@ Open **8443/tcp**, **8444/tcp** (if the operator is on another machine), and
 ```
 phone-pwa/            Phone capture client (WHIP + control WS)
 operator-dashboard/   Operator UI (control WS + WHEP grid + switch log)
-control/              FastAPI control service (cameras, slots, record, switch log)
+control/              Node control service (cameras, slots, record, switch log) + tests
 mediamtx/             MediaMTX config template (dev-up renders the per-network copy)
 dev-server.mjs        TLS static server + WHIP/WHEP/WS reverse proxy
 cli/                  Cross-platform launcher (npm run setup|certs|up|down)
@@ -161,7 +157,7 @@ plan.md               Full design doc
 
 [MediaMTX](https://github.com/bluenviron/mediamtx) ·
 [mkcert](https://github.com/FiloSottile/mkcert) ·
-[FastAPI](https://fastapi.tiangolo.com/)
+[ws](https://github.com/websockets/ws)
 
 ## License
 

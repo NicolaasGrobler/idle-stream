@@ -39,7 +39,7 @@ graph LR
       D1["phone server :8443"]
       D2["operator server :8444"]
     end
-    CTRL["Control service (FastAPI) :9000<br/>cameras, slots, arm/preview/record<br/>data/cameras.json"]
+    CTRL["Control service (Node) :9000<br/>cameras, slots, arm/preview/record<br/>data/cameras.json"]
     MMTX["MediaMTX<br/>WHIP/WHEP :8889 (localhost)<br/>UDP :8189 media · API :9997"]
     DISK[("recordings/&lt;cam&gt;/*.mp4")]
   end
@@ -62,7 +62,7 @@ Media (UDP :8189) flows directly phone↔MediaMTX. Only HTTP/WS signalling is pr
 |---|---|---|---|
 | Phone server | Node `dev-server.mjs` (static + TLS + proxy) | 8443 | LAN (firewall) |
 | Operator server | same, `PORT=8444` | 8444 | LAN / localhost |
-| Control service | Python FastAPI + uvicorn | 9000 | localhost |
+| Control service | Node (`node:http` + `ws`) | 9000 | localhost |
 | MediaMTX WHIP/WHEP | Go binary | 8889 | localhost (proxied) |
 | MediaMTX media (ICE) | — | 8189/udp | LAN (firewall) |
 | MediaMTX API | — | 9997 | localhost |
@@ -97,7 +97,10 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 - The committed config is **network-agnostic** (`webrtcIPsFromInterfaces: yes` gathers every interface IP as an ICE candidate, including the LAN one; `webrtcAdditionalHosts: []`). `dev-up.ps1` renders `mediamtx.gen.yml` with the detected LAN IP injected and launches from that — nothing per-network is committed.
 
 ### Control service (`control/`)
-FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
+Node on `:9000` — `node:http` for the read-only HTTP API and `ws` for the two
+WebSocket endpoints (the project's only runtime dependency; everything else is
+the Node standard library). Both endpoints are proxied same-origin by the
+dev-server:
 - **`/ws/phone`** — phones register with a **persistent id** (`{phoneId, name}`; falls back to a server-assigned id if absent) and report status (`{publishing, battery}`); receive `registered`, `assigned`, `command:{publish|stop}`, `recording`. A reconnect with a known id revives the existing record (slot intact). A dropped phone is kept in the roster **marked offline** (its slot held) rather than deleted.
 - **`/ws/operator`** — receives a full `state` snapshot on every change and accepts: `addCamera`/`renameCamera`/`removeCamera`, `assign`/`unassign`/`removePhone`, `startPreview`/`stopPreview`, `startRecording`/`stopRecording`, and `switch` (take a camera as the program feed). `removePhone` only drops an **offline** phone.
 - Enforces **one phone per camera** (assignment evicts a prior holder). Records only slots that are **live in MediaMTX at the moment Record is pressed** (checks the API, not a stale flag).
@@ -128,16 +131,16 @@ FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 idle-stream/
 ├── mediamtx/mediamtx.yml         # MediaMTX config template (no paths, no LAN IP); dev-up renders mediamtx.gen.yml
 ├── control/
-│   ├── app/{main,state,mediamtx,cameras,switches,recordings}.py
-│   ├── requirements.txt
-│   └── .venv/                     # (gitignored)
+│   ├── {index,state,mediamtx,cameras,switches,recordings}.mjs
+│   └── test/control.test.mjs      # node:test parity suite (npm test)
 ├── phone-pwa/index.html          # phone capture client (WHIP + control WS)
 ├── operator-dashboard/index.html # operator UI (control WS + WHEP grid)
 ├── milestone0/                   # standalone getUserMedia diagnostic (keep for new-device cert checks)
 ├── milestone1/                   # standalone publisher (superseded by phone-pwa; kept as a no-orchestration test)
 ├── dev-server.mjs                # TLS static server + WHIP/WHEP/WS reverse proxy
 ├── cli/{index,platform,tools,certs}.mjs   # cross-platform launcher (npm run setup|certs|up|down)
-├── package.json                  # npm scripts -> cli; "multicam" bin
+├── package.json                  # npm scripts -> cli; "multicam" bin; ws dep + test
+├── package-lock.json             # (node_modules/ gitignored; npm install restores)
 ├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # Windows PowerShell equivalents of the CLI
 ├── scripts/{dev-up,dev-down}.ps1 # Windows start/stop (same behavior as cli up/down)
 ├── tools/                        # mkcert, mediamtx binaries (gitignored; npm run setup re-downloads)
@@ -150,12 +153,13 @@ idle-stream/
 Cross-platform via the Node launcher (Windows/macOS/Linux):
 
 ```bash
+npm install                      # once: the one runtime dependency (ws)
 npm run setup                    # once: download mkcert + MediaMTX for this OS/arch
 npm run certs                    # once: local CA + cert for the LAN IP; trust rootCA on phones
-python -m venv control/.venv && control/.venv/bin/pip install -r control/requirements.txt   # once
 npm run up                       # start MediaMTX + control + both dev-servers (logs in ./logs)
 # Phones:   https://<LAN-IP>:8443/      Operator: https://localhost:8444/
 npm run down                     # stop everything
+npm test                         # run the control-service parity suite
 ```
 
 Windows users can instead run the equivalent PowerShell scripts: `setup\fetch-tools.ps1`,
@@ -167,7 +171,7 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 - **M0 — iOS camera over LAN HTTPS**: done (mkcert CA, validated on a real iPhone).
 - **M1 — phone → MediaMTX → lossless recording**: done (copy-only H.264+Opus, ffprobe-verified).
 - **M2/M3 — operator WHEP preview + multiple cameras**: done (multi-cam simultaneous record + live grid).
-- **Control service / orchestration**: done — armed phones, operator slot assignment with collision prevention, two-stage preview→record, synchronized start, runtime record toggle (verified no publisher drop).
+- **Control service / orchestration**: done — armed phones, operator slot assignment with collision prevention, two-stage preview→record, synchronized start, runtime record toggle (verified no publisher drop). Implemented in **Node** (`node:http` + `ws`); the original Python/FastAPI service was ported (wire protocol, snapshot shape, and HTTP API preserved so the phone/dashboard need no changes) and removed, leaving a single Node runtime plus the two Go binaries. A committed `npm test` parity suite (`node:test`) covers the switch-log flow, persistent-id reconnect, auto-clear grace, battery-in-status, and recordings traversal rejection; validated against live MediaMTX direct on `:9000` and through the dev-server proxy.
 - **Dynamic cameras**: done — add/rename/remove, persisted, MediaMTX paths managed at runtime.
 - **Grid layout selector**: done (Auto / 2 / 3 / 4).
 - **Switch log**: done — tile-click / 1–9 "take cam N" with PGM tally, per-camera record-start stamps, sessions appended to `data/switches.json`. Server-flow validated (handlers driven offline with a stubbed MediaMTX); dashboard rendering validated in a browser. Not yet exercised end-to-end with a live phone publisher.
@@ -192,7 +196,7 @@ Pushing a switched feed to RTMP needs **one persistent encoder fed by a switchab
 ## Testing
 
 - **Manual smoke (per service)**: phones Join → assign → Start Preview → Record → Stop → verify files. Validated.
-- **Control service**: WebSocket CRUD (camera add/rename/remove) exercised against MediaMTX + persistence.
+- **Control service**: committed `npm test` parity suite (`node:test`) drives the handlers with a fake WebSocket + stubbed MediaMTX (switch-log flow, persistent-id reconnect, auto-clear grace, battery-in-status, recordings traversal rejection); plus WebSocket CRUD (camera add/rename/remove) exercised against live MediaMTX + persistence.
 - **Future automated**: spin up MediaMTX + control; Playwright drives the phone PWA with `--use-fake-device-for-media-stream` and the dashboard end-to-end.
 
 ## Reference Reading
