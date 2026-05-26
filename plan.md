@@ -88,7 +88,7 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 ### Phone PWA (`phone-pwa/`)
 - Landing: phone name + camera (front/back) → **Join** (one gesture acquires the camera, requests wake lock, connects the control WebSocket, registers).
 - Then **armed**: shows the assigned camera's label and waits. Publishes via **WHIP only on the operator's command**, forcing H.264 and a 5 Mbps target bitrate. Shows live/standby, bitrate, and a REC badge mirroring session state.
-- WebSocket auto-reconnect with backoff.
+- **Persistent identity** (`localStorage` id sent on register) so a WebSocket reconnect re-attaches to the same record and keeps the slot. WebSocket auto-reconnect with backoff; on reconnect the server restores the assignment and (if recording) re-issues the publish command.
 
 ### MediaMTX (`mediamtx/mediamtx.yml`)
 - WebRTC on `127.0.0.1:8889` (no TLS — the proxy terminates it), media on UDP `:8189`, API on `127.0.0.1:9997`. RTSP/RTMP/HLS/SRT disabled.
@@ -97,15 +97,15 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 
 ### Control service (`control/`)
 FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
-- **`/ws/phone`** — phones register (`{name}` → assigned an id), report publishing status; receive `assigned`, `command:{publish|stop}`, `recording` messages.
-- **`/ws/operator`** — receives a full `state` snapshot on every change and accepts: `addCamera`/`renameCamera`/`removeCamera`, `assign`/`unassign`, `startPreview`/`stopPreview`, `startRecording`/`stopRecording`, and `switch` (take a camera as the program feed).
+- **`/ws/phone`** — phones register with a **persistent id** (`{phoneId, name}`; falls back to a server-assigned id if absent) and report publishing status; receive `registered`, `assigned`, `command:{publish|stop}`, `recording`. A reconnect with a known id revives the existing record (slot intact). A dropped phone is kept in the roster **marked offline** (its slot held) rather than deleted.
+- **`/ws/operator`** — receives a full `state` snapshot on every change and accepts: `addCamera`/`renameCamera`/`removeCamera`, `assign`/`unassign`/`removePhone`, `startPreview`/`stopPreview`, `startRecording`/`stopRecording`, and `switch` (take a camera as the program feed). `removePhone` only drops an **offline** phone.
 - Enforces **one phone per camera** (assignment evicts a prior holder). Records only slots that are **live in MediaMTX at the moment Record is pressed** (checks the API, not a stale flag).
 - Owns the camera list (persisted `data/cameras.json`); creates/deletes MediaMTX paths via the API and re-ensures them every 2s (survives a MediaMTX restart).
 - **Switch log.** Each recording is a session. On Record it stamps **per-camera record-start timestamps** and opens an empty switch log; each `switch` (operator "take cam N", ignored unless recording, consecutive duplicates skipped) appends `{wall-clock, offset-from-session-start, camId, label}`. On Stop the session — timing, per-camera start stamps, and the ordered takes — is appended to `data/switches.json` for the post-production cut. Offsets map directly onto the recording timeline.
 
 ### Operator dashboard (`operator-dashboard/`)
 - **Cameras panel**: add (next free `camN`), inline rename, remove (× — deletes the MediaMTX path and unassigns phones).
-- **Phone roster**: each phone's slot dropdown (taken slots disabled), live/standby badge.
+- **Phone roster**: each phone's slot dropdown (taken slots disabled), live/standby badge. Disconnected phones stay listed as **offline** (dimmed, slot retained) with a × to remove a stale one.
 - **Session controls**: Start Preview (all), Stop Preview, Record / Stop Recording, live count, recording timer.
 - **WHEP multiview**: dynamic tiles that grow/shrink with the camera list, per-tile inbound bitrate, and a **layout selector (Auto / 2 / 3 / 4 per row)** remembered in `localStorage`.
 - **Switching**: while recording, click a tile — or press number keys **1–9** (vision-mixer style, by camera order) — to "take" that camera as the program feed. The current program tile gets a red **PGM** tally border; a side-panel **switch log** lists every take with its offset. Off-air the controls no-op.
@@ -166,14 +166,16 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 - **Dynamic cameras**: done — add/rename/remove, persisted, MediaMTX paths managed at runtime.
 - **Grid layout selector**: done (Auto / 2 / 3 / 4).
 - **Switch log**: done — tile-click / 1–9 "take cam N" with PGM tally, per-camera record-start stamps, sessions appended to `data/switches.json`. Server-flow validated (handlers driven offline with a stubbed MediaMTX); dashboard rendering validated in a browser. Not yet exercised end-to-end with a live phone publisher.
+- **Cross-platform launcher**: done — `cli/` Node CLI (`npm run setup|certs|up|down`) alongside the PowerShell scripts. Validated on Windows; macOS/Linux branches unverified.
+- **Persistent phone id**: done — phones carry a `localStorage` id; reconnects keep the slot, dropped phones go offline (not deleted), operator can remove a stale one, and a reconnect mid-recording resumes publishing. Server flow validated offline; dashboard offline UI validated in a browser. Not yet exercised with a real phone reconnect.
 
 ### Next
 - **Stop Session + recordings list**: see/download captured files from the dashboard (per-camera start stamps already recorded by the switch log, so files and `switches.json` can be aligned).
-- **Phone polish**: persistent phone id (survive WiFi blips without losing the slot), landscape lock, low-battery warning.
+- **Recording auto-clear**: stop the session automatically when the last publisher drops, instead of leaving it in a recording state.
 - **Pre-flight check** screen (all cameras publishing, codec H.264, recording writes, audio present).
+- **Phone polish**: landscape lock, low-battery warning.
 
 ### Known limitations
-- A phone that drops its WebSocket reconnects as a **new** entry and loses its slot assignment (needs a persistent phone id).
 - Recording state doesn't auto-clear if every phone drops — the operator clicks Stop Recording.
 - The cross-platform Node launcher (`cli/`) is validated on Windows; the macOS/Linux branches (tool download/extract via `tar`, `lsof`-based stop) are written but unverified on those OSes.
 

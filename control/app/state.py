@@ -16,10 +16,11 @@ class Camera:
 
 @dataclass
 class Phone:
-    id: str
+    id: str                         # persistent, supplied by the phone (localStorage)
     name: str
     slot: Optional[str] = None      # camera id, or None (unassigned)
     publishing: bool = False        # is its slot live in MediaMTX
+    connected: bool = True          # WebSocket currently open (survives reconnects)
 
 
 @dataclass

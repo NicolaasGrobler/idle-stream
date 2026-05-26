@@ -79,6 +79,14 @@
 
     const MAX_VIDEO_BITRATE = 5_000_000;
 
+    // Persistent identity: survives WiFi blips / reloads so the operator keeps
+    // this phone's camera-slot assignment instead of seeing a new phone.
+    const phoneId = (() => {
+      let id = localStorage.getItem('phoneId');
+      if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); localStorage.setItem('phoneId', id); }
+      return id;
+    })();
+
     let ws = null, stream = null, pc = null, statsTimer = null;
     let assignedSlot = null, publishing = false, reconnectDelay = 1000;
 
@@ -113,7 +121,10 @@
     }
 
     async function startPublish(slot) {
-      if (publishing) return;
+      if (!slot) return;
+      if (pc && pc.connectionState === 'connected') return;   // already live
+      if (pc) { try { pc.close(); } catch {} pc = null; }       // clear a stale/dead pc so reconnect can re-publish
+      publishing = false;
       if (!stream) { log('No camera; cannot publish.'); return; }
       setBadge($('status'), 'warn', 'connecting…');
       pc = new RTCPeerConnection({ iceServers: [] });
@@ -172,7 +183,7 @@
       ws.onopen = () => {
         reconnectDelay = 1000;
         setBadge($('conn'), 'ok', 'connected');
-        ws.send(JSON.stringify({ type: 'register', name }));
+        ws.send(JSON.stringify({ type: 'register', name, phoneId }));
         if (publishing) sendStatus(true);
       };
       ws.onclose = () => {

@@ -44,6 +44,7 @@
     .camrow .cid { font-size: 11px; color: #777; width: 42px; }
     .camrow input { flex: 1; font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
     .phone .name { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .phone.off { opacity: 0.6; }
     .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
     .empty { color: #666; font-size: 13px; padding: 6px 0; }
     #grid { flex: 1; display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-content: start; min-height: 0; overflow: auto; }
@@ -220,10 +221,16 @@
       host.innerHTML = '';
       const taken = lastState.slots || {};
       for (const p of phones) {
+        const offline = p.connected === false;
         const div = document.createElement('div');
-        div.className = 'card phone';
-        div.innerHTML = `<div class="name">${escapeHtml(p.name)}
-          <span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span></div>`;
+        div.className = 'card phone' + (offline ? ' off' : '');
+        const statusBadge = offline
+          ? '<span class="badge bad">offline</span>'
+          : `<span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span>`;
+        div.innerHTML = `<div class="name">${escapeHtml(p.name)} ${statusBadge}`
+          + (offline ? '<span class="spacer"></span><button class="sm stop rmphone" title="Remove phone">×</button>' : '')
+          + '</div>';
+        if (offline) div.querySelector('.rmphone').addEventListener('click', () => send({ type: 'removePhone', phoneId: p.id }));
         const opts = [{ value: '', label: 'Unassigned' }].concat(cams.map((c) => {
           const otherOwner = taken[c.id] && taken[c.id] !== p.id;
           return { value: c.id, label: c.label + (otherOwner ? ' (taken)' : ''), disabled: !!otherOwner };

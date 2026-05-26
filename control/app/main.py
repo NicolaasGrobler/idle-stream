@@ -66,10 +66,31 @@ async def ws_phone(ws: WebSocket) -> None:
         while True:
             msg = json.loads(await ws.receive_text())
             if msg.get("type") == "register" and phone_id is None:
-                phone_id = uuid.uuid4().hex[:8]
+                # The phone supplies its own persistent id (localStorage) so a
+                # reconnect re-attaches to the same record — keeping its slot —
+                # instead of appearing as a brand-new phone.
+                phone_id = (msg.get("phoneId") or "").strip() or uuid.uuid4().hex[:8]
+                old = phone_sockets.get(phone_id)
+                if old is not None and old is not ws:    # a stale socket for this id
+                    try:
+                        await old.close()
+                    except Exception:
+                        pass
                 phone_sockets[phone_id] = ws
-                state.phones[phone_id] = Phone(id=phone_id, name=(msg.get("name") or f"Phone {phone_id}").strip())
+                name = (msg.get("name") or "").strip()
+                p = state.phones.get(phone_id)
+                if p:                                    # reconnect: revive the existing record
+                    p.connected = True
+                    if name:
+                        p.name = name
+                else:
+                    p = Phone(id=phone_id, name=name or f"Phone {phone_id}")
+                    state.phones[phone_id] = p
                 await ws.send_text(json.dumps({"type": "registered", "phoneId": phone_id, "recording": state.recording}))
+                if p.slot:                               # restore the armed state on the phone
+                    await ws.send_text(json.dumps(await assigned_msg(p.slot)))
+                    if state.recording:                  # rejoin an in-progress recording
+                        await ws.send_text(json.dumps({"type": "command", "action": "publish", "slot": p.slot}))
                 await broadcast_state()
             elif phone_id is not None and msg.get("type") == "status":
                 p = state.phones.get(phone_id)
@@ -81,9 +102,14 @@ async def ws_phone(ws: WebSocket) -> None:
     except Exception:
         pass
     finally:
-        if phone_id is not None:
+        # Keep the phone in the roster (marked offline) so its slot is held for
+        # when it reconnects. Guard against a newer socket having taken over.
+        if phone_id is not None and phone_sockets.get(phone_id) is ws:
             phone_sockets.pop(phone_id, None)
-            state.phones.pop(phone_id, None)
+            p = state.phones.get(phone_id)
+            if p:
+                p.connected = False
+                p.publishing = False
             await broadcast_state()
 
 
@@ -144,6 +170,15 @@ async def handle_operator_message(msg: dict) -> None:
         if pid in state.phones:
             state.phones[pid].slot = None
             await send_phone(pid, await assigned_msg(None))
+            await broadcast_state()
+
+    elif t == "removePhone":
+        # Only an offline phone can be dropped from the roster; a connected phone
+        # is managed via unassign so we don't strand its open socket.
+        pid = msg.get("phoneId")
+        p = state.phones.get(pid)
+        if p and not p.connected:
+            state.phones.pop(pid, None)
             await broadcast_state()
 
     # ---- preview / record ----

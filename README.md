@@ -131,8 +131,6 @@ Open **8443/tcp**, **8444/tcp** (if the operator is on another machine), and
 
 ## Limitations
 
-- A phone that drops its WebSocket reconnects as a *new* entry and loses its slot
-  (no persistent phone id yet).
 - Recording state doesn't auto-clear if every phone drops — the operator clicks
   Stop Recording.
 - The cross-platform Node launcher is exercised on Windows; the macOS/Linux code
