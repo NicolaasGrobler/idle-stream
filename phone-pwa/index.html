@@ -84,7 +84,10 @@
     const log = (m) => { $('log').textContent = `[${new Date().toLocaleTimeString()}] ${m}\n` + $('log').textContent; };
     const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
 
-    const MAX_VIDEO_BITRATE = 5_000_000;
+    // Target publish bitrate. Recording is copy-only, so this is the recording
+    // quality at 1080p30. 8 Mbps is a solid quality bump over the old 5; push
+    // higher (10–12M) only if the WiFi/AP has headroom for every phone at once.
+    const MAX_VIDEO_BITRATE = 8_000_000;
 
     // Persistent identity: survives WiFi blips / reloads so the operator keeps
     // this phone's camera-slot assignment instead of seeing a new phone.
