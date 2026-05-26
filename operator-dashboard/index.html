@@ -78,16 +78,40 @@
     .modal-input:focus { outline: none; border-color: #4ade80; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
     /* Recordings modal */
-    .recmodal { width: min(680px, 92vw); max-height: 80vh; display: flex; flex-direction: column; }
+    .recmodal { width: min(720px, 94vw); max-height: 82vh; display: flex; flex-direction: column; }
     .rec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .rec-head h3 { margin: 0; }
     .rec-body { overflow: auto; }
-    .rec-body h4 { margin: 14px 0 4px; font-size: 13px; color: #bbb; display: flex; gap: 8px; align-items: baseline; }
-    .rec-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
-    .rec-row a { color: #4ade80; text-decoration: none; word-break: break-all; }
-    .rec-row a:hover { text-decoration: underline; }
-    .rec-meta { color: #777; white-space: nowrap; flex: none; }
-    .rec-sub { font-size: 12px; color: #888; margin-bottom: 6px; }
+    .rec-sub { font-size: 12px; color: #888; margin-bottom: 10px; }
+    .rec-sub a { color: #4ade80; text-decoration: none; }
+    .rec-sub a:hover { text-decoration: underline; }
+    /* Tabs */
+    .rec-tabs { display: flex; gap: 2px; border-bottom: 1px solid #222; margin-bottom: 12px; flex: none; }
+    .rec-tab { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 14px; color: #888; font-weight: 600; }
+    .rec-tab:hover { color: #ccc; }
+    .rec-tab.active { color: #e8e8e8; border-bottom-color: #16a34a; }
+    /* Session cards */
+    .session-card { display: flex; align-items: center; gap: 12px; background: #141414; border: 1px solid #242424; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+    .session-card .sc-main { flex: 1; min-width: 0; }
+    .sc-title { font-weight: 600; font-size: 14px; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sc-meta { color: #888; font-size: 12px; }
+    .sc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .cam-chip { display: inline-flex; align-items: center; gap: 6px; background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 999px; padding: 2px 10px 2px 7px; font-size: 12px; }
+    .cam-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+    .session-card .go { flex: none; }
+    /* Clips, grouped by camera */
+    .cam-group { margin-bottom: 16px; }
+    .cam-group-head { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #222; margin-bottom: 4px; }
+    .cgh-label { font-weight: 600; }
+    .cgh-id { color: #666; font-size: 12px; }
+    .cgh-meta { color: #888; font-size: 12px; }
+    .clip-row { display: flex; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 8px; }
+    .clip-row:hover { background: #161616; }
+    .clip-row .clip-main { flex: 1; min-width: 0; }
+    .clip-when { font-size: 13px; }
+    .clip-file { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .clip-size { color: #9aa0a6; font-size: 12px; flex: none; font-variant-numeric: tabular-nums; }
+    .clip-dl { text-decoration: none; flex: none; }
     /* Pre-flight checklist */
     .pf-verdict { display: inline-block; margin-bottom: 10px; font-size: 14px; }
     .pf-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #1c1c1c; }
@@ -353,30 +377,56 @@
       nameEl.focus();
     }
 
-    // ---------- Recordings browser (modal) ----------
+    // ---------- Recordings browser (modal, tabbed: Sessions / Clips) ----------
     const fmtBytes = (n) => { if (n < 1024) return n + ' B'; const u = ['KB', 'MB', 'GB', 'TB']; let i = -1; do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1); return n.toFixed(1) + ' ' + u[i]; };
-    const fmtTime = (epoch) => new Date(epoch * 1000).toLocaleString();
+    // Stable color per camera id (so the same angle reads the same everywhere).
+    const colorForCam = (id) => { let h = 0; for (const ch of (id || '')) h = h * 31 + ch.charCodeAt(0); return `hsl(${Math.abs(h) % 360} 55% 55%)`; };
+    const labelOfCam = (id) => { const c = (lastState.cameras || []).find((x) => x.id === id); return c ? c.label : id; };
+    const sessionTitle = (s) => s.name || new Date((s.startedAt || 0) * 1000).toLocaleString();
+    // MediaMTX filenames embed the local start time; reformat the literal parts.
+    const fmtClipWhen = (name) => {
+      const m = /(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)/.exec(name || '');
+      if (!m) return '';
+      const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m[2] - 1];
+      return `${mon} ${+m[3]}, ${m[4]}:${m[5]}:${m[6]}`;
+    };
 
-    function renderRecordings(cams, sessions) {
-      let html = '';
-      if (sessions.length) {
-        html += '<h4>Switch logs</h4>';
-        html += `<div class="rec-sub"><a href="/api/sessions" download="switches.json">Download switches.json</a> · ${sessions.length} session(s)</div>`;
-        html += sessions.map((s, i) =>
-          `<div class="rec-row"><span>${s.name ? `<strong>${escapeHtml(s.name)}</strong> · ` : ''}${escapeHtml(s.startedAtIso || String(s.startedAt || ''))}</span>`
-          + `<span class="rec-meta">${Math.round(s.durationSec || 0)}s · ${(s.switches || []).length} takes `
-          + `<button class="sm stop sess-preview" data-idx="${i}">▶ Preview</button></span></div>`).reverse().join('');
-      }
-      if (!cams.length) { html += '<div class="empty">No recordings captured yet.</div>'; return html; }
-      for (const c of cams) {
-        html += `<h4>${escapeHtml(c.cam)} <span class="rec-meta">${fmtBytes(c.totalBytes || 0)}</span></h4>`;
-        if (!c.files.length) { html += '<div class="empty">none</div>'; continue; }
-        html += c.files.map((f) =>
-          `<div class="rec-row"><a href="/api/recordings/download?cam=${encodeURIComponent(c.cam)}&name=${encodeURIComponent(f.name)}" download>${escapeHtml(f.name)}</a>`
-          + `<span class="rec-meta">${fmtBytes(f.sizeBytes)} · ${fmtTime(f.modified)} `
-          + `<button class="sm stop clip-play" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}">▶ Play</button></span></div>`).join('');
-      }
+    function renderSessionsTab(sessions, recCams) {
+      if (!sessions.length) return '<div class="empty">No sessions recorded yet. They appear here after you Record → Stop.</div>';
+      let html = `<div class="rec-sub">${sessions.length} session${sessions.length === 1 ? '' : 's'} · <a href="/api/sessions" download="switches.json">Download switches.json</a></div>`;
+      html += sessions.map((s, i) => {
+        const takes = (s.switches || []).length;
+        const chips = (s.cameras || []).map((c) =>
+          `<span class="cam-chip"><i class="cam-dot" style="background:${colorForCam(c.id)}"></i>${escapeHtml(c.label || c.id)}</span>`).join('');
+        return `<div class="session-card"><div class="sc-main">
+          <div class="sc-title">${escapeHtml(sessionTitle(s))}</div>
+          <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'}</div>
+          <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
+        </div><button class="go sess-preview" data-idx="${i}">▶ Preview</button></div>`;
+      }).reverse().join('');
       return html;
+    }
+
+    function renderClipsTab(recCams) {
+      if (!recCams.length) return '<div class="empty">No clips captured yet.</div>';
+      return recCams.map((c) => {
+        const label = labelOfCam(c.cam);
+        const idSpan = label !== c.cam ? `<span class="cgh-id">${escapeHtml(c.cam)}</span>` : '';
+        const head = `<div class="cam-group-head"><i class="cam-dot" style="background:${colorForCam(c.cam)}"></i>`
+          + `<span class="cgh-label">${escapeHtml(label)}</span>${idSpan}`
+          + `<span class="spacer"></span><span class="cgh-meta">${fmtBytes(c.totalBytes || 0)} · ${c.files.length} file${c.files.length === 1 ? '' : 's'}</span></div>`;
+        if (!c.files.length) return `<div class="cam-group">${head}<div class="empty">none</div></div>`;
+        const rows = c.files.map((f) => {
+          const url = `/api/recordings/download?cam=${encodeURIComponent(c.cam)}&name=${encodeURIComponent(f.name)}`;
+          return `<div class="clip-row"><div class="clip-main">
+            <div class="clip-when">${escapeHtml(fmtClipWhen(f.name) || f.name)}</div>
+            <div class="clip-file">${escapeHtml(f.name)}</div></div>
+            <span class="clip-size">${fmtBytes(f.sizeBytes)}</span>
+            <button class="sm go clip-play" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}">▶ Play</button>
+            <a class="sm stop clip-dl" href="${url}" download title="Download">⤓</a></div>`;
+        }).join('');
+        return `<div class="cam-group">${head}${rows}</div>`;
+      }).join('');
     }
 
     function openRecordings() {
@@ -386,14 +436,36 @@
         <div class="rec-head"><h3>Recordings</h3><span class="spacer"></span>
           <button class="sm stop rec-refresh">Refresh</button>
           <button class="sm stop rec-close">Close</button></div>
+        <div class="rec-tabs">
+          <button class="rec-tab active" data-tab="sessions">Sessions</button>
+          <button class="rec-tab" data-tab="clips">Clips</button>
+        </div>
         <div class="rec-body">Loading…</div></div>`;
       document.body.appendChild(overlay);
       const body = overlay.querySelector('.rec-body');
+      const tabs = [...overlay.querySelectorAll('.rec-tab')];
+      let active = 'sessions';
+      const data = { recCams: [], sess: [] };
       const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
       const onKey = (e) => { if (e.key === 'Escape') close(); };
       document.addEventListener('keydown', onKey, true);
       overlay.querySelector('.rec-close').addEventListener('click', close);
       overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) close(); });
+
+      function renderTab() {
+        tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === active));
+        if (active === 'sessions') {
+          body.innerHTML = renderSessionsTab(data.sess, data.recCams);
+          body.querySelectorAll('.sess-preview').forEach((b) =>
+            b.addEventListener('click', () => openSessionPreview(data.sess[Number(b.dataset.idx)], data.recCams)));
+        } else {
+          body.innerHTML = renderClipsTab(data.recCams);
+          body.querySelectorAll('.clip-play').forEach((b) =>
+            b.addEventListener('click', () => openClipPreview(b.dataset.cam, b.dataset.name)));
+        }
+      }
+      tabs.forEach((t) => t.addEventListener('click', () => { active = t.dataset.tab; renderTab(); }));
+
       async function load() {
         body.textContent = 'Loading…';
         try {
@@ -401,13 +473,9 @@
             fetch('/api/recordings').then((r) => r.json()),
             fetch('/api/sessions').then((r) => r.json()),
           ]);
-          const sess = Array.isArray(sessions) ? sessions : [];
-          const recCams = recs.cameras || [];
-          body.innerHTML = renderRecordings(recCams, sess);
-          body.querySelectorAll('.sess-preview').forEach((b) =>
-            b.addEventListener('click', () => openSessionPreview(sess[Number(b.dataset.idx)], recCams)));
-          body.querySelectorAll('.clip-play').forEach((b) =>
-            b.addEventListener('click', () => openClipPreview(b.dataset.cam, b.dataset.name)));
+          data.recCams = recs.cameras || [];
+          data.sess = Array.isArray(sessions) ? sessions : [];
+          renderTab();
         } catch (e) { body.textContent = 'Failed to load recordings: ' + e.message; }
       }
       overlay.querySelector('.rec-refresh').addEventListener('click', load);
