@@ -95,6 +95,18 @@
     .pf-row .pf-label { font-weight: 600; flex: none; min-width: 120px; }
     .pf-row .pf-detail { color: #888; font-size: 12px; }
     .pf-ok { color: #4ade80; } .pf-warn { color: #fbbf24; } .pf-bad { color: #f87171; }
+    /* Session preview player */
+    .player { width: min(900px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+    .player-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
+    .player-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: none; }
+    .player-stage video.active { display: block; }
+    .player-black { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #666; font-size: 13px; text-align: center; padding: 0 16px; }
+    .player-camlabel { position: absolute; top: 8px; left: 10px; padding: 2px 8px; background: rgba(0,0,0,0.6); border-radius: 6px; font-weight: 600; font-size: 13px; z-index: 3; display: none; }
+    .player-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .player-time { font-variant-numeric: tabular-nums; color: #bbb; font-size: 13px; flex: none; }
+    .player-bar { position: relative; flex: 1; height: 10px; background: #222; border-radius: 6px; cursor: pointer; }
+    .player-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #16a34a; border-radius: 6px; width: 0; pointer-events: none; }
+    .player-marker { position: absolute; top: -3px; width: 2px; height: 16px; background: #f87171; transform: translateX(-1px); pointer-events: none; }
     /* Switch log */
     #switchlogList { max-height: 240px; overflow: auto; }
     .swrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
@@ -311,9 +323,10 @@
       if (sessions.length) {
         html += '<h4>Switch logs</h4>';
         html += `<div class="rec-sub"><a href="/api/sessions" download="switches.json">Download switches.json</a> · ${sessions.length} session(s)</div>`;
-        html += sessions.slice().reverse().map((s) =>
+        html += sessions.map((s, i) =>
           `<div class="rec-row"><span>${escapeHtml(s.startedAtIso || String(s.startedAt || ''))}</span>`
-          + `<span class="rec-meta">${Math.round(s.durationSec || 0)}s · ${(s.switches || []).length} takes</span></div>`).join('');
+          + `<span class="rec-meta">${Math.round(s.durationSec || 0)}s · ${(s.switches || []).length} takes `
+          + `<button class="sm stop sess-preview" data-idx="${i}">▶ Preview</button></span></div>`).reverse().join('');
       }
       if (!cams.length) { html += '<div class="empty">No recordings captured yet.</div>'; return html; }
       for (const c of cams) {
@@ -348,13 +361,166 @@
             fetch('/api/recordings').then((r) => r.json()),
             fetch('/api/sessions').then((r) => r.json()),
           ]);
-          body.innerHTML = renderRecordings(recs.cameras || [], Array.isArray(sessions) ? sessions : []);
+          const sess = Array.isArray(sessions) ? sessions : [];
+          const recCams = recs.cameras || [];
+          body.innerHTML = renderRecordings(recCams, sess);
+          body.querySelectorAll('.sess-preview').forEach((b) =>
+            b.addEventListener('click', () => openSessionPreview(sess[Number(b.dataset.idx)], recCams)));
         } catch (e) { body.textContent = 'Failed to load recordings: ' + e.message; }
       }
       overlay.querySelector('.rec-refresh').addEventListener('click', load);
       load();
     }
     $('recordingsBtn').addEventListener('click', openRecordings);
+
+    // ---------- Session preview player ----------
+    // Plays the program edit for a finished session: a single active <video> at a
+    // time, driven by the switch log. Each per-angle clip is mapped onto the
+    // session timeline via its recordStartedAt; at each take offset the active
+    // angle swaps. Pre-roll (before the first take) and takes whose camera has no
+    // file show a black "no footage" frame. Preview only — not a rendered export.
+
+    // Match a session to one recording file per camera by mtime window (filenames
+    // are local-time, so we key off the reliable fs mtime instead).
+    function fileForCam(recCams, camId, session) {
+      const entry = (recCams || []).find((c) => c.cam === camId);
+      if (!entry || !entry.files.length) return null;
+      const lo = (session.startedAt || 0) - 2, hi = (session.stoppedAt || 0) + 10;
+      const cands = entry.files.filter((f) => f.modified >= lo && f.modified <= hi);
+      if (!cands.length) return null;
+      return cands.reduce((a, b) => (b.modified > a.modified ? b : a)).name;
+    }
+
+    function openSessionPreview(session, recCams) {
+      if (!session) return;
+      const dur = session.durationSec || 0;
+      const start = session.startedAt || 0;
+
+      // Per-camera clip + timeline offset.
+      const cams = {};
+      for (const c of (session.cameras || [])) {
+        const name = fileForCam(recCams, c.id, session);
+        cams[c.id] = {
+          label: c.label || c.id,
+          delay: (c.recordStartedAt || start) - start,
+          url: name ? `/api/recordings/download?cam=${encodeURIComponent(c.id)}&name=${encodeURIComponent(name)}` : null,
+        };
+      }
+
+      // Program segments from the ordered takes.
+      const sw = (session.switches || []).slice().sort((a, b) => a.offset - b.offset);
+      const segs = [];
+      if (!sw.length) {
+        const first = (session.cameras || [])[0];
+        segs.push({ start: 0, end: dur, camId: first ? first.id : null });
+      } else {
+        if (sw[0].offset > 0.05) segs.push({ start: 0, end: sw[0].offset, camId: null });
+        for (let i = 0; i < sw.length; i++) {
+          segs.push({ start: sw[i].offset, end: i + 1 < sw.length ? sw[i + 1].offset : dur, camId: sw[i].camId });
+        }
+      }
+      const segAt = (t) => segs.find((s) => t >= s.start && t < s.end) || segs[segs.length - 1] || { camId: null };
+      // A camera taken but never recorded (e.g. an old session) isn't in cams[],
+      // but the take itself carries its label.
+      const labelFor = (id) => (cams[id] && cams[id].label) || (sw.find((s) => s.camId === id) || {}).label || id;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `<div class="modal player">
+        <div class="rec-head"><h3>Preview · ${escapeHtml(session.startedAtIso || '')}</h3><span class="spacer"></span>
+          <button class="sm stop pl-close">Close</button></div>
+        <div class="player-stage"><div class="player-camlabel"></div><div class="player-black">— before first take —</div></div>
+        <div class="player-controls">
+          <button class="go pl-play" style="min-width:84px">▶ Play</button>
+          <span class="player-time">00:00 / ${fmtOffset(dur)}</span>
+          <div class="player-bar"><div class="player-fill"></div></div>
+        </div></div>`;
+      document.body.appendChild(overlay);
+      const stage = overlay.querySelector('.player-stage');
+      const black = overlay.querySelector('.player-black');
+      const camLabel = overlay.querySelector('.player-camlabel');
+      const playBtn = overlay.querySelector('.pl-play');
+      const timeEl = overlay.querySelector('.player-time');
+      const bar = overlay.querySelector('.player-bar');
+      const fill = overlay.querySelector('.player-fill');
+
+      const vids = {};
+      for (const [id, c] of Object.entries(cams)) {
+        if (!c.url) continue;
+        const v = document.createElement('video');
+        v.playsInline = true; v.preload = 'auto'; v.muted = true; v.src = c.url;
+        stage.insertBefore(v, black);
+        vids[id] = v;
+      }
+      for (const s of sw) {
+        if (!dur) break;
+        const mk = document.createElement('div');
+        mk.className = 'player-marker'; mk.style.left = `${(100 * s.offset) / dur}%`;
+        mk.title = `${fmtOffset(s.offset)} · ${s.label || s.camId}`;
+        bar.appendChild(mk);
+      }
+
+      let sessionTime = 0, playing = false, activeId = undefined, lastMs = 0, raf = 0;
+
+      function showActive(id) {
+        for (const [vid, v] of Object.entries(vids)) {
+          const on = vid === id; v.classList.toggle('active', on); v.muted = !on; if (!on) v.pause();
+        }
+        const seg = segAt(sessionTime);
+        if (id && vids[id]) { camLabel.textContent = cams[id].label; camLabel.style.display = 'block'; black.style.display = 'none'; }
+        else {
+          camLabel.style.display = 'none'; black.style.display = 'flex';
+          black.textContent = seg.camId ? `no footage for ${labelFor(seg.camId)}` : '— before first take —';
+        }
+      }
+      function setActiveFor(t) {
+        const seg = segAt(t);
+        const id = (seg.camId && vids[seg.camId]) ? seg.camId : null;
+        if (id !== activeId) {
+          activeId = id;
+          showActive(id);
+          if (id) { try { vids[id].currentTime = Math.max(0, t - cams[id].delay); } catch {} if (playing) vids[id].play().catch(() => {}); }
+        } else if (!id) {
+          black.textContent = seg.camId ? `no footage for ${labelFor(seg.camId)}` : '— before first take —';
+        }
+      }
+      function ui() { fill.style.width = `${(100 * Math.min(sessionTime, dur)) / (dur || 1)}%`; timeEl.textContent = `${fmtOffset(sessionTime)} / ${fmtOffset(dur)}`; }
+
+      function tick(ms) {
+        if (!playing) return;
+        const a = activeId && vids[activeId];
+        if (a && !a.paused && !a.seeking) sessionTime = a.currentTime + cams[activeId].delay;
+        else sessionTime += (ms - lastMs) / 1000;     // advance through black/missing footage
+        lastMs = ms;
+        if (sessionTime >= dur) { sessionTime = dur; pause(); ui(); return; }
+        setActiveFor(sessionTime);
+        ui();
+        raf = requestAnimationFrame(tick);
+      }
+      function play() {
+        if (sessionTime >= dur) sessionTime = 0;
+        playing = true; playBtn.textContent = '❚❚ Pause';
+        activeId = undefined; setActiveFor(sessionTime);
+        if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} vids[activeId].play().catch(() => {}); }
+        lastMs = performance.now(); raf = requestAnimationFrame(tick);
+      }
+      function pause() { playing = false; playBtn.textContent = '▶ Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); }
+      function seekTo(t) {
+        sessionTime = Math.max(0, Math.min(dur, t)); activeId = undefined; setActiveFor(sessionTime); ui();
+        if (playing && activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} vids[activeId].play().catch(() => {}); }
+        lastMs = performance.now();
+      }
+
+      playBtn.addEventListener('click', () => (playing ? pause() : play()));
+      bar.addEventListener('click', (e) => { const r = bar.getBoundingClientRect(); seekTo(((e.clientX - r.left) / r.width) * dur); });
+      const close = () => { pause(); for (const v of Object.values(vids)) { v.removeAttribute('src'); v.load(); } overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); else if (e.key === ' ') { e.preventDefault(); playing ? pause() : play(); } };
+      document.addEventListener('keydown', onKey, true);
+      overlay.querySelector('.pl-close').addEventListener('click', close);
+      overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) close(); });
+
+      setActiveFor(0); ui();
+    }
 
     // ---------- Pre-flight check (modal) ----------
     // Per assigned camera: live? video H.264 (so recording stays copy-only)? audio?
