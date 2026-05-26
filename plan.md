@@ -131,23 +131,31 @@ idle-stream/
 ├── milestone0/                   # standalone getUserMedia diagnostic (keep for new-device cert checks)
 ├── milestone1/                   # standalone publisher (superseded by phone-pwa; kept as a no-orchestration test)
 ├── dev-server.mjs                # TLS static server + WHIP/WHEP/WS reverse proxy
-├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # lan-ip.ps1: shared LAN IP detection
-├── scripts/{dev-up,dev-down}.ps1 # start/stop the whole stack
-├── tools/                        # mkcert.exe, mediamtx.exe (gitignored; fetch-tools re-downloads)
+├── cli/{index,platform,tools,certs}.mjs   # cross-platform launcher (npm run setup|certs|up|down)
+├── package.json                  # npm scripts -> cli; "multicam" bin
+├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # Windows PowerShell equivalents of the CLI
+├── scripts/{dev-up,dev-down}.ps1 # Windows start/stop (same behavior as cli up/down)
+├── tools/                        # mkcert, mediamtx binaries (gitignored; npm run setup re-downloads)
 ├── certs/  data/  recordings/  logs/   # all gitignored
 └── plan.md
 ```
 
 ## Running It
 
-```powershell
-.\setup\fetch-tools.ps1          # once: download mkcert + MediaMTX
-.\setup\make-certs.ps1           # once: local CA + cert for the LAN IP; trust rootCA on phones
-python -m venv control\.venv; control\.venv\Scripts\pip install -r control\requirements.txt   # once
-.\scripts\dev-up.ps1             # start MediaMTX + control + both dev-servers (logs in .\logs)
+Cross-platform via the Node launcher (Windows/macOS/Linux):
+
+```bash
+npm run setup                    # once: download mkcert + MediaMTX for this OS/arch
+npm run certs                    # once: local CA + cert for the LAN IP; trust rootCA on phones
+python -m venv control/.venv && control/.venv/bin/pip install -r control/requirements.txt   # once
+npm run up                       # start MediaMTX + control + both dev-servers (logs in ./logs)
 # Phones:   https://<LAN-IP>:8443/      Operator: https://localhost:8444/
-.\scripts\dev-down.ps1           # stop everything
+npm run down                     # stop everything
 ```
+
+Windows users can instead run the equivalent PowerShell scripts: `setup\fetch-tools.ps1`,
+`setup\make-certs.ps1`, `scripts\dev-up.ps1`, `scripts\dev-down.ps1`. Both paths share
+the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 
 ## Build Status
 
@@ -167,7 +175,7 @@ python -m venv control\.venv; control\.venv\Scripts\pip install -r control\requi
 ### Known limitations
 - A phone that drops its WebSocket reconnects as a **new** entry and loses its slot assignment (needs a persistent phone id).
 - Recording state doesn't auto-clear if every phone drops — the operator clicks Stop Recording.
-- Setup scripts are **Windows/PowerShell only** (`.ps1`); the runtime (Node dev-server, MediaMTX, mkcert) is cross-platform but macOS/Linux launch scripts don't exist yet.
+- The cross-platform Node launcher (`cli/`) is validated on Windows; the macOS/Linux branches (tool download/extract via `tar`, `lsof`-based stop) are written but unverified on those OSes.
 
 ## Future: Live Streaming (not v1)
 

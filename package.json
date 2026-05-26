@@ -1,0 +1,20 @@
+{
+  "name": "wireless-multicam-studio",
+  "version": "0.1.0",
+  "description": "Turn phones into a synchronized multi-angle recording rig over your LAN.",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "bin": {
+    "multicam": "cli/index.mjs"
+  },
+  "scripts": {
+    "setup": "node cli/index.mjs tools",
+    "certs": "node cli/index.mjs certs",
+    "up": "node cli/index.mjs up",
+    "down": "node cli/index.mjs down"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

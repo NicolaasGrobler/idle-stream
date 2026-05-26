@@ -45,21 +45,27 @@ For the full design rationale and the decisions behind it, see **[plan.md](plan.
 
 ## Requirements
 
-- A **Windows** laptop/desktop on the same WiFi/LAN as the phones. (The runtime —
-  Node, MediaMTX, mkcert — is cross-platform; only the setup/launch scripts are
-  PowerShell today. macOS/Linux scripts are not written yet.)
-- **Node.js** and **Python 3.10+** installed.
+- A laptop/desktop (**Windows, macOS, or Linux**) on the same WiFi/LAN as the phones.
+- **Node.js 18+** and **Python 3.10+** installed. (`tar` is also needed for the
+  tool download — built in on macOS, Linux, and Windows 10+.)
 - One or more phones with a modern browser (**iOS Safari** or **Android Chrome**).
 - A network where the laptop has a stable private IP (a static DHCP lease is ideal).
 
 ## Setup (one-time)
 
-```powershell
-.\setup\fetch-tools.ps1      # download mkcert + MediaMTX into tools\
-.\setup\make-certs.ps1       # install a local CA + issue a LAN cert (auto-detects your IP)
-python -m venv control\.venv
-control\.venv\Scripts\pip install -r control\requirements.txt
+```bash
+npm run setup        # download mkcert + MediaMTX for your OS/arch into tools/
+npm run certs        # install a local CA + issue a LAN cert (auto-detects your IP)
+
+# control-service Python deps:
+python -m venv control/.venv
+control/.venv/bin/pip install -r control/requirements.txt          # macOS / Linux
+# control\.venv\Scripts\pip install -r control\requirements.txt    # Windows
 ```
+
+> On Windows you can alternatively use the PowerShell scripts in `setup\` and
+> `scripts\` (`fetch-tools.ps1`, `make-certs.ps1`, `dev-up.ps1`, `dev-down.ps1`);
+> they do the same thing.
 
 iOS Safari silently blocks the camera on an untrusted cert, so each phone has to
 trust the local CA **once**:
@@ -71,17 +77,18 @@ trust the local CA **once**:
 
 ## Run
 
-```powershell
-.\scripts\dev-up.ps1         # start MediaMTX + control service + both dev-servers
+```bash
+npm run up           # start MediaMTX + control service + both dev-servers
 #   Phones:   https://<LAN-IP>:8443/
 #   Operator: https://localhost:8444/   (or https://<LAN-IP>:8444/)
-.\scripts\dev-down.ps1       # stop everything
+npm run down         # stop everything
 ```
 
-**Switching networks just works.** `dev-up.ps1` re-detects the LAN IP, re-issues
-the TLS cert if it changed (the CA is unchanged, so phones stay trusted — no
+**Switching networks just works.** `up` re-detects the LAN IP, re-issues the TLS
+cert if it changed (the CA is unchanged, so phones stay trusted — no
 re-distributing the root cert), and configures MediaMTX accordingly. Move from a
-test network to the venue and run `dev-up.ps1` there — no hand-editing.
+test network to the venue and run `npm run up` there — no hand-editing. To force a
+specific address: `npm run up -- --ip 10.0.0.5`.
 
 ## Using it
 
@@ -128,7 +135,9 @@ Open **8443/tcp**, **8444/tcp** (if the operator is on another machine), and
   (no persistent phone id yet).
 - Recording state doesn't auto-clear if every phone drops — the operator clicks
   Stop Recording.
-- Setup/launch scripts are Windows/PowerShell only.
+- The cross-platform Node launcher is exercised on Windows; the macOS/Linux code
+  paths (tool download/extract, `lsof`-based stop) are written but not yet
+  verified on those OSes.
 
 ## Project layout
 
@@ -138,8 +147,8 @@ operator-dashboard/   Operator UI (control WS + WHEP grid + switch log)
 control/              FastAPI control service (cameras, slots, record, switch log)
 mediamtx/             MediaMTX config template (dev-up renders the per-network copy)
 dev-server.mjs        TLS static server + WHIP/WHEP/WS reverse proxy
-setup/                fetch-tools, make-certs, shared LAN IP detection
-scripts/              dev-up / dev-down
+cli/                  Cross-platform launcher (npm run setup|certs|up|down)
+setup/, scripts/      Windows PowerShell equivalents of the CLI commands
 milestone0/, milestone1/   Standalone diagnostics (camera-over-HTTPS, single publisher)
 plan.md               Full design doc
 ```
