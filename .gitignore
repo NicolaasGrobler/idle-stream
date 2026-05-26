@@ -9,6 +9,9 @@ tools/
 # Recordings
 recordings/
 
+# Backups (moved-out recordings + session logs)
+backups/
+
 # Runtime logs
 logs/
 
