@@ -28,6 +28,9 @@ class SessionState:
     phones: dict = field(default_factory=dict)     # id -> Phone
     recording: bool = False
     recording_started_at: Optional[float] = None
+    session_id: Optional[str] = None
+    camera_record_started: dict = field(default_factory=dict)  # camId -> epoch (when record enabled)
+    switches: list = field(default_factory=list)               # [{t, offset, camId, label}] for the live session
 
     def camera_ids(self) -> list:
         return [c.id for c in self.cameras]
@@ -58,4 +61,7 @@ class SessionState:
             "slots": {c.id: self.slot_owner(c.id) for c in self.cameras},
             "recording": self.recording,
             "recordingStartedAt": self.recording_started_at,
+            "sessionId": self.session_id,
+            "cameraRecordStartedAt": self.camera_record_started,
+            "switches": self.switches,
         }

@@ -48,6 +48,10 @@
     .empty { color: #666; font-size: 13px; padding: 6px 0; }
     #grid { flex: 1; display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-content: start; min-height: 0; overflow: auto; }
     .tile { position: relative; background: #000; border: 1px solid #222; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; }
+    body.recording .tile { cursor: pointer; }
+    .tile.pgm { border-color: #ef4444; box-shadow: 0 0 0 2px #ef4444 inset, 0 0 16px rgba(239,68,68,0.55); }
+    .tile .pgm-badge { position: absolute; top: 8px; right: 10px; display: none; background: #dc2626; color: #fff; }
+    .tile.pgm .pgm-badge { display: inline-block; }
     .tile video { width: 100%; height: 100%; object-fit: cover; background: #000; }
     .tile .label { position: absolute; top: 8px; left: 10px; font-weight: 600; font-size: 13px; padding: 2px 8px; background: rgba(0,0,0,0.55); border-radius: 6px; }
     .tile .state { position: absolute; bottom: 8px; left: 10px; }
@@ -67,6 +71,12 @@
     .modal-input { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; margin-bottom: 14px; }
     .modal-input:focus { outline: none; border-color: #4ade80; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    /* Switch log */
+    #switchlogList { max-height: 240px; overflow: auto; }
+    .swrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
+    .swrow:last-child { border-bottom: none; }
+    .swrow .swt { color: #f87171; font-variant-numeric: tabular-nums; width: 46px; flex: none; }
+    .swrow .swl { color: #e8e8e8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -91,6 +101,9 @@
       <h2>Connected phones</h2>
       <div id="phones"></div>
       <div id="noPhones" class="empty">No phones connected. Open the phone page, enter a name, tap Join.</div>
+
+      <h2>Switch log</h2>
+      <div id="switchlogList" class="card"></div>
     </div>
     <div id="grid"></div>
   </main>
@@ -169,7 +182,7 @@
       ws = new WebSocket(`wss://${location.host}/ws/operator`);
       ws.onopen = () => { wsDelay = 1000; setBadge($('conn'), 'ok', 'connected'); };
       ws.onclose = () => { setBadge($('conn'), 'bad', 'reconnecting…'); setTimeout(connectWS, wsDelay); wsDelay = Math.min(wsDelay * 2, 30000); };
-      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); syncGrid(); } };
+      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); syncGrid(); renderProgram(); renderSwitchLog(); } };
     }
     const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
@@ -282,7 +295,8 @@
           const el = document.createElement('div');
           el.className = 'tile';
           el.innerHTML = `<video autoplay playsinline muted></video><div class="offline-overlay">offline</div>
-            <span class="label"></span><span class="state badge muted">offline</span><span class="stats"></span>`;
+            <span class="label"></span><span class="pgm-badge badge">PGM</span><span class="state badge muted">offline</span><span class="stats"></span>`;
+          el.addEventListener('click', () => takeProgram(c.id));
           grid.appendChild(el);
           tiles[c.id] = { root: el, video: el.querySelector('video'), overlay: el.querySelector('.offline-overlay'),
             state: el.querySelector('.state'), stats: el.querySelector('.stats'), label: el.querySelector('.label'), pc: null, lastBytes: 0, lastTs: 0 };
@@ -290,6 +304,44 @@
         tiles[c.id].label.textContent = `${c.label} · ${c.id}`;
       }
     }
+
+    // ---------- Switch log (program takes) ----------
+    // "Take" a camera as the program feed. Only meaningful while recording — the
+    // log is the editorial cut list aligned to the recordings. Server skips
+    // consecutive duplicate takes of the same camera.
+    function takeProgram(id) { if (lastState.recording) send({ type: 'switch', camId: id }); }
+    const currentProgram = () => (lastState.switches || []).slice(-1)[0]?.camId || null;
+    function renderProgram() {
+      const pgm = lastState.recording ? currentProgram() : null;
+      document.body.classList.toggle('recording', !!lastState.recording);
+      for (const id of Object.keys(tiles)) tiles[id].root.classList.toggle('pgm', id === pgm);
+    }
+    const fmtOffset = (sec) => { sec = Math.max(0, Math.floor(sec || 0)); return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`; };
+    function renderSwitchLog() {
+      const box = $('switchlogList');
+      const sw = lastState.switches || [];
+      if (sw.length === 0) {
+        box.innerHTML = `<div class="empty">${lastState.recording
+          ? 'Recording — click a tile or press 1–9 to mark the program camera.'
+          : 'Start recording, then click a tile (or press 1–9) to mark the program camera.'}</div>`;
+        return;
+      }
+      box.innerHTML = sw.map((s) => `<div class="swrow"><span class="swt">${fmtOffset(s.offset)}</span><span class="swl">${escapeHtml(s.label || s.camId)}</span></div>`).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // Vision-mixer style: number keys take the Nth camera (in list order).
+    document.addEventListener('keydown', (e) => {
+      if (!lastState.recording) return;
+      if (document.querySelector('.modal-overlay')) return;
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key >= '1' && e.key <= '9') {
+        const cam = (lastState.cameras || [])[Number(e.key) - 1];
+        if (cam) { e.preventDefault(); takeProgram(cam.id); }
+      }
+    });
+
     function setTile(id, cls, text, overlay) { const t = tiles[id]; if (!t) return; t.state.className = 'state badge ' + cls; t.state.textContent = text; t.overlay.style.display = overlay ? 'flex' : 'none'; }
     function waitIce(pc) { return new Promise((r) => { if (pc.iceGatheringState === 'complete') return r(); const f = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', f); r(); } }; pc.addEventListener('icegatheringstatechange', f); setTimeout(r, 2000); }); }
 
@@ -328,6 +380,7 @@
 
     connectWS();
     renderControl();
+    renderSwitchLog();
     pollPaths();
     setInterval(pollPaths, 2000);
   </script>

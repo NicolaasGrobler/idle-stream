@@ -12,12 +12,18 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from . import cameras as cameras_store
+from . import switches as switches_store
 from .state import SessionState, Phone, Camera
 from .mediamtx import MediaMTX
+
+
+def _iso(ts: float | None) -> str | None:
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat() if ts is not None else None
 
 state = SessionState()
 mtx = MediaMTX()
@@ -154,22 +160,62 @@ async def handle_operator_message(msg: dict) -> None:
                 await send_phone(p.id, {"type": "command", "action": "stop"})
 
     elif t == "startRecording":
+        if state.recording:
+            return                                  # already recording — don't reset the session
         ready = await mtx.ready_paths()
         cams = sorted({p.slot for p in state.phones.values() if p.slot and ready.get(p.slot)})
+        if not cams:
+            return
+        state.camera_record_started = {}
         for cam in cams:
             await mtx.set_record(cam, True)
-        if cams:
-            state.recording = True
-            state.recording_started_at = time.time()
-            for pid in list(phone_sockets):
-                await send_phone(pid, {"type": "recording", "on": True})
-            await broadcast_state()
+            state.camera_record_started[cam] = time.time()   # ~synchronized; per-cam for post alignment
+        state.recording = True
+        state.recording_started_at = min(state.camera_record_started.values())
+        state.session_id = uuid.uuid4().hex[:8]
+        state.switches = []
+        for pid in list(phone_sockets):
+            await send_phone(pid, {"type": "recording", "on": True})
+        await broadcast_state()
+
+    elif t == "switch":
+        cam = msg.get("camId")
+        if state.recording and cam in state.camera_ids():
+            # ignore a repeat take of the camera already on program — keeps the log clean
+            if not state.switches or state.switches[-1]["camId"] != cam:
+                ts = time.time()
+                state.switches.append({
+                    "t": ts,
+                    "offset": round(ts - (state.recording_started_at or ts), 3),
+                    "camId": cam,
+                    "label": state.label_for(cam),
+                })
+                await broadcast_state()
 
     elif t == "stopRecording":
         for cam in state.camera_ids():
             await mtx.set_record(cam, False)
+        if state.session_id:                        # finalize the editorial switch log
+            stopped = time.time()
+            switches_store.append_session({
+                "sessionId": state.session_id,
+                "startedAt": state.recording_started_at,
+                "startedAtIso": _iso(state.recording_started_at),
+                "stoppedAt": stopped,
+                "stoppedAtIso": _iso(stopped),
+                "durationSec": round(stopped - (state.recording_started_at or stopped), 3),
+                "cameras": [
+                    {"id": cid, "label": state.label_for(cid) or cid,
+                     "recordStartedAt": ts, "recordStartedAtIso": _iso(ts)}
+                    for cid, ts in state.camera_record_started.items()
+                ],
+                "switches": state.switches,
+            })
         state.recording = False
         state.recording_started_at = None
+        state.session_id = None
+        state.camera_record_started = {}
+        state.switches = []
         for pid in list(phone_sockets):
             await send_phone(pid, {"type": "recording", "on": False})
         await broadcast_state()

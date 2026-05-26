@@ -2,7 +2,7 @@
 
 A local-network recording studio. Phones act as wireless cameras streaming over WebRTC (WHIP) to a server that records each angle losslessly. An operator dashboard coordinates the phones (assign cameras, arm → preview → record) and shows all feeds live. The final edit is cut in post from the clean per-angle files.
 
-> **Status (living doc).** This spec now reflects what is actually built. Milestones 0–3 plus the operator control service and dynamic cameras are implemented and validated on real iOS + Android phones. Live-switched RTMP remains deliberately out of scope (see [Future](#future-live-streaming-not-v1)). Implementation status is tracked in [Build Status](#build-status).
+> **Status (living doc).** This spec now reflects what is actually built. Milestones 0–3 plus the operator control service, dynamic cameras, and the editorial switch log are implemented and validated on real iOS + Android phones. Live-switched RTMP remains deliberately out of scope (see [Future](#future-live-streaming-not-v1)). Implementation status is tracked in [Build Status](#build-status).
 
 ## Goals
 
@@ -96,21 +96,24 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 ### Control service (`control/`)
 FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 - **`/ws/phone`** — phones register (`{name}` → assigned an id), report publishing status; receive `assigned`, `command:{publish|stop}`, `recording` messages.
-- **`/ws/operator`** — receives a full `state` snapshot on every change and accepts: `addCamera`/`renameCamera`/`removeCamera`, `assign`/`unassign`, `startPreview`/`stopPreview`, `startRecording`/`stopRecording`.
+- **`/ws/operator`** — receives a full `state` snapshot on every change and accepts: `addCamera`/`renameCamera`/`removeCamera`, `assign`/`unassign`, `startPreview`/`stopPreview`, `startRecording`/`stopRecording`, and `switch` (take a camera as the program feed).
 - Enforces **one phone per camera** (assignment evicts a prior holder). Records only slots that are **live in MediaMTX at the moment Record is pressed** (checks the API, not a stale flag).
 - Owns the camera list (persisted `data/cameras.json`); creates/deletes MediaMTX paths via the API and re-ensures them every 2s (survives a MediaMTX restart).
+- **Switch log.** Each recording is a session. On Record it stamps **per-camera record-start timestamps** and opens an empty switch log; each `switch` (operator "take cam N", ignored unless recording, consecutive duplicates skipped) appends `{wall-clock, offset-from-session-start, camId, label}`. On Stop the session — timing, per-camera start stamps, and the ordered takes — is appended to `data/switches.json` for the post-production cut. Offsets map directly onto the recording timeline.
 
 ### Operator dashboard (`operator-dashboard/`)
 - **Cameras panel**: add (next free `camN`), inline rename, remove (× — deletes the MediaMTX path and unassigns phones).
 - **Phone roster**: each phone's slot dropdown (taken slots disabled), live/standby badge.
 - **Session controls**: Start Preview (all), Stop Preview, Record / Stop Recording, live count, recording timer.
 - **WHEP multiview**: dynamic tiles that grow/shrink with the camera list, per-tile inbound bitrate, and a **layout selector (Auto / 2 / 3 / 4 per row)** remembered in `localStorage`.
+- **Switching**: while recording, click a tile — or press number keys **1–9** (vision-mixer style, by camera order) — to "take" that camera as the program feed. The current program tile gets a red **PGM** tally border; a side-panel **switch log** lists every take with its offset. Off-air the controls no-op.
 
 ## Camera & Recording Model
 
 - A camera = `{id: "camN", label}`. The id is the MediaMTX path; the label is editable. New cameras get the next free `camN`.
 - **Two-stage**: Start Preview makes assigned phones publish (no recording). Record patches `record: on` for every live slot — recording starts from that instant, across all cameras together, without dropping publishers. Stop Recording patches them off.
 - Recording is copy-only H.264 + Opus → fMP4. Quality equals what the phone streams (5 Mbps target), not the phone's native camera quality.
+- **Switch log = editorial cut list.** A session spans Record→Stop. The operator's takes are logged as offsets from session start (plus absolute wall-clock + per-camera record-start stamps) to `data/switches.json`, so the editor can cut between the clean per-angle files in post. It records intent, not a switched output — no live program feed is produced (see [Future](#future-live-streaming-not-v1)).
 
 ## Repository Layout
 
@@ -118,7 +121,7 @@ FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 idle-stream/
 ├── mediamtx/mediamtx.yml         # MediaMTX config (no paths; control service adds them)
 ├── control/
-│   ├── app/{main,state,mediamtx,cameras}.py
+│   ├── app/{main,state,mediamtx,cameras,switches}.py
 │   ├── requirements.txt
 │   └── .venv/                     # (gitignored)
 ├── phone-pwa/index.html          # phone capture client (WHIP + control WS)
@@ -152,10 +155,10 @@ python -m venv control\.venv; control\.venv\Scripts\pip install -r control\requi
 - **Control service / orchestration**: done — armed phones, operator slot assignment with collision prevention, two-stage preview→record, synchronized start, runtime record toggle (verified no publisher drop).
 - **Dynamic cameras**: done — add/rename/remove, persisted, MediaMTX paths managed at runtime.
 - **Grid layout selector**: done (Auto / 2 / 3 / 4).
+- **Switch log**: done — tile-click / 1–9 "take cam N" with PGM tally, per-camera record-start stamps, sessions appended to `data/switches.json`. Server-flow validated (handlers driven offline with a stubbed MediaMTX); dashboard rendering validated in a browser. Not yet exercised end-to-end with a live phone publisher.
 
 ### Next
-- **Switch log**: operator "take cam N" timestamped to `switches.json` for post-production editing (the original editorial premise).
-- **Stop Session + recordings list**: see/download captured files from the dashboard; record per-camera start timestamps for alignment.
+- **Stop Session + recordings list**: see/download captured files from the dashboard (per-camera start stamps already recorded by the switch log, so files and `switches.json` can be aligned).
 - **Phone polish**: persistent phone id (survive WiFi blips without losing the slot), landscape lock, low-battery warning.
 - **Pre-flight check** screen (all cameras publishing, codec H.264, recording writes, audio present).
 
