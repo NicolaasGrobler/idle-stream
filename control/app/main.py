@@ -137,6 +137,8 @@ async def ws_phone(ws: WebSocket) -> None:
                 p = state.phones.get(phone_id)
                 if p:
                     p.publishing = bool(msg.get("publishing"))
+                    b = msg.get("battery")
+                    p.battery = b if isinstance(b, dict) else None
                     await broadcast_state()
     except WebSocketDisconnect:
         pass

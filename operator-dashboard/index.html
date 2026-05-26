@@ -247,7 +247,13 @@
         const statusBadge = offline
           ? '<span class="badge bad">offline</span>'
           : `<span class="badge ${p.publishing ? 'ok' : 'muted'}">${p.publishing ? 'live' : 'standby'}</span>`;
-        div.innerHTML = `<div class="name">${escapeHtml(p.name)} ${statusBadge}`
+        let batBadge = '';
+        if (p.battery && typeof p.battery.level === 'number') {
+          const pct = Math.round(p.battery.level * 100);
+          const low = pct <= 20 && !p.battery.charging;
+          batBadge = ` <span class="badge ${low ? 'bad' : 'muted'}">${pct}%${p.battery.charging ? ' ⚡' : ''}</span>`;
+        }
+        div.innerHTML = `<div class="name">${escapeHtml(p.name)} ${statusBadge}${batBadge}`
           + (offline ? '<span class="spacer"></span><button class="sm stop rmphone" title="Remove phone">×</button>' : '')
           + '</div>';
         if (offline) div.querySelector('.rmphone').addEventListener('click', () => send({ type: 'removePhone', phoneId: p.id }));

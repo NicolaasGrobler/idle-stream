@@ -93,7 +93,9 @@ specific address: `npm run up -- --ip 10.0.0.5`.
 ## Using it
 
 1. **On each phone:** open the phone URL, enter a name, pick front/back, tap
-   **Join**. The phone arms and waits.
+   **Join**. The phone arms and waits. It nudges you to rotate to landscape and
+   (where the browser supports it — i.e. Android) reports its battery to the
+   dashboard.
 2. **On the dashboard:** add/rename cameras as needed, then assign each phone to a
    camera slot (one phone per slot).
 3. **Start Preview** — assigned phones begin streaming (not recording yet). Frame

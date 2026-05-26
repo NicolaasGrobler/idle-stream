@@ -21,6 +21,7 @@ class Phone:
     slot: Optional[str] = None      # camera id, or None (unassigned)
     publishing: bool = False        # is its slot live in MediaMTX
     connected: bool = True          # WebSocket currently open (survives reconnects)
+    battery: Optional[dict] = None  # {level: 0-1, charging: bool} where reported (not iOS)
 
 
 @dataclass

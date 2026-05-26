@@ -31,16 +31,21 @@
     pre { margin: 8px 0 0; padding: 10px; background: #111; border: 1px solid #222; border-radius: 8px;
       font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 22vh; overflow: auto; }
     .hidden { display: none !important; }
+    .rotate { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; background: rgba(10,10,10,0.93); color: #fbbf24; font-size: 20px; font-weight: 700; text-align: center; }
+    .rotate .ico { font-size: 56px; line-height: 1; }
   </style>
 </head>
 <body>
   <header>
     <h1>Camera</h1>
     <span id="rec" class="rec"><span class="dot"></span>REC</span>
+    <span id="bat" class="badge muted hidden"></span>
     <span id="conn" class="badge muted">offline</span>
   </header>
 
   <video id="video" autoplay playsinline muted></video>
+  <div id="rotate" class="rotate hidden"><div class="ico">&#x21BB;</div>Rotate to landscape</div>
 
   <div id="panel">
     <!-- Join screen -->
@@ -89,6 +94,7 @@
 
     let ws = null, stream = null, pc = null, statsTimer = null;
     let assignedSlot = null, publishing = false, reconnectDelay = 1000;
+    let battery = null;   // {level 0-1, charging} where the Battery API exists (not iOS)
 
     // ----- Camera -----
     async function acquireCamera() {
@@ -176,7 +182,36 @@
     }
 
     // ----- Control WebSocket -----
-    function sendStatus(pub) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'status', publishing: pub })); }
+    function sendStatus(pub) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'status', publishing: pub, battery })); }
+
+    // ----- Battery (reported to the operator; unsupported on iOS Safari) -----
+    function renderBattery() {
+      const el = $('bat');
+      if (!battery) { el.classList.add('hidden'); return; }
+      const pct = Math.round(battery.level * 100);
+      const low = pct <= 20 && !battery.charging;
+      el.classList.remove('hidden');
+      el.textContent = `${pct}%${battery.charging ? ' ⚡' : ''}`;
+      el.className = 'badge ' + (low ? 'bad' : 'muted');
+    }
+    async function initBattery() {
+      if (!navigator.getBattery) return;          // iOS / unsupported: skip silently
+      try {
+        const b = await navigator.getBattery();
+        const update = () => { battery = { level: b.level, charging: b.charging }; renderBattery(); sendStatus(publishing); };
+        b.addEventListener('levelchange', update);
+        b.addEventListener('chargingchange', update);
+        update();
+      } catch {}
+    }
+
+    // ----- Landscape guidance (hard lock unsupported on iOS; overlay everywhere) -----
+    const portraitMM = window.matchMedia('(orientation: portrait)');
+    function updateOrientation() {
+      const armed = !$('armed').classList.contains('hidden');
+      $('rotate').classList.toggle('hidden', !(armed && portraitMM.matches));
+    }
+    portraitMM.addEventListener('change', updateOrientation);
 
     function connectWS(name) {
       ws = new WebSocket(`wss://${location.host}/ws/phone`);
@@ -184,7 +219,7 @@
         reconnectDelay = 1000;
         setBadge($('conn'), 'ok', 'connected');
         ws.send(JSON.stringify({ type: 'register', name, phoneId }));
-        if (publishing) sendStatus(true);
+        sendStatus(publishing);   // also conveys current battery to the operator
       };
       ws.onclose = () => {
         setBadge($('conn'), 'bad', 'reconnecting…');
@@ -220,8 +255,11 @@
       try {
         await acquireCamera();
         try { await (navigator.wakeLock && navigator.wakeLock.request('screen')); } catch {}
+        try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch {}
         $('join').classList.add('hidden');
         $('armed').classList.remove('hidden');
+        updateOrientation();
+        initBattery();
         connectWS(name);
       } catch (e) {
         $('joinBtn').disabled = false;

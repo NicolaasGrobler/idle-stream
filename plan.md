@@ -89,6 +89,7 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 - Landing: phone name + camera (front/back) → **Join** (one gesture acquires the camera, requests wake lock, connects the control WebSocket, registers).
 - Then **armed**: shows the assigned camera's label and waits. Publishes via **WHIP only on the operator's command**, forcing H.264 and a 5 Mbps target bitrate. Shows live/standby, bitrate, and a REC badge mirroring session state.
 - **Persistent identity** (`localStorage` id sent on register) so a WebSocket reconnect re-attaches to the same record and keeps the slot. WebSocket auto-reconnect with backoff; on reconnect the server restores the assignment and (if recording) re-issues the publish command.
+- **Landscape guidance**: a "rotate to landscape" overlay when armed in portrait (best-effort `screen.orientation.lock` on Android; iOS Safari has no lock API, so the overlay is the cross-platform mechanism). **Battery**: where the Battery API exists (not iOS Safari), the phone shows a local badge and reports `{level, charging}` to the operator via status messages.
 
 ### MediaMTX (`mediamtx/mediamtx.yml`)
 - WebRTC on `127.0.0.1:8889` (no TLS — the proxy terminates it), media on UDP `:8189`, API on `127.0.0.1:9997`. RTSP/RTMP/HLS/SRT disabled.
@@ -97,7 +98,7 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 
 ### Control service (`control/`)
 FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
-- **`/ws/phone`** — phones register with a **persistent id** (`{phoneId, name}`; falls back to a server-assigned id if absent) and report publishing status; receive `registered`, `assigned`, `command:{publish|stop}`, `recording`. A reconnect with a known id revives the existing record (slot intact). A dropped phone is kept in the roster **marked offline** (its slot held) rather than deleted.
+- **`/ws/phone`** — phones register with a **persistent id** (`{phoneId, name}`; falls back to a server-assigned id if absent) and report status (`{publishing, battery}`); receive `registered`, `assigned`, `command:{publish|stop}`, `recording`. A reconnect with a known id revives the existing record (slot intact). A dropped phone is kept in the roster **marked offline** (its slot held) rather than deleted.
 - **`/ws/operator`** — receives a full `state` snapshot on every change and accepts: `addCamera`/`renameCamera`/`removeCamera`, `assign`/`unassign`/`removePhone`, `startPreview`/`stopPreview`, `startRecording`/`stopRecording`, and `switch` (take a camera as the program feed). `removePhone` only drops an **offline** phone.
 - Enforces **one phone per camera** (assignment evicts a prior holder). Records only slots that are **live in MediaMTX at the moment Record is pressed** (checks the API, not a stale flag).
 - Owns the camera list (persisted `data/cameras.json`); creates/deletes MediaMTX paths via the API and re-ensures them every 2s (survives a MediaMTX restart).
@@ -107,7 +108,7 @@ FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 
 ### Operator dashboard (`operator-dashboard/`)
 - **Cameras panel**: add (next free `camN`), inline rename, remove (× — deletes the MediaMTX path and unassigns phones).
-- **Phone roster**: each phone's slot dropdown (taken slots disabled), live/standby badge. Disconnected phones stay listed as **offline** (dimmed, slot retained) with a × to remove a stale one.
+- **Phone roster**: each phone's slot dropdown (taken slots disabled), live/standby badge, and a **battery** badge (red when ≤20% and not charging) where the phone reports it. Disconnected phones stay listed as **offline** (dimmed, slot retained) with a × to remove a stale one.
 - **Session controls**: Start Preview (all), Stop Preview, Record / Stop Recording, live count, recording timer.
 - **Recordings browser**: a modal lists captured files per camera (size + time, download links) and the switch-log sessions (with a `switches.json` download), fetched from the control service's read-only `/api/*` endpoints.
 - **Pre-flight check**: a modal verifies, per assigned camera, that it's live, video is **H.264** (so recording stays copy-only), and an audio track is present (from the MediaMTX `tracks`), plus a disk writable/free-space check (`/api/preflight`). Shows a pass/warn/fail checklist and an overall ready verdict.
@@ -175,10 +176,10 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 - **Recording auto-clear**: done — a recording with no live publisher for 30s auto-stops and finalizes the session (blip-tolerant via the grace window). Validated offline.
 - **Recordings list/download**: done — read-only `/api/*` endpoints + a dashboard Recordings modal to browse and download per-angle files and the `switches.json` logs. API validated direct + via the TLS proxy (incl. traversal rejection); modal rendering validated in a browser.
 - **Pre-flight check**: done — dashboard modal checks each assigned camera for live + H.264 + audio (from MediaMTX `tracks`) and a disk writable/free check (`/api/preflight`), with a pass/warn/fail verdict. Endpoint + checklist rendering validated.
+- **Phone polish**: done — landscape-rotate overlay (best-effort lock on Android) and battery reporting to the operator (local badge + roster badge) where supported. Overlay + battery rendering validated in a browser; battery-in-status flow validated offline.
 
 ### Next
-- **Phone polish**: landscape lock, low-battery warning.
-- **Hardware/OS validation**: real multi-phone run (switch log + reconnect end-to-end); exercise the macOS/Linux launcher branches.
+- **Hardware/OS validation**: real multi-phone run (switch log + reconnect + landscape/battery end-to-end); exercise the macOS/Linux launcher branches. Needs physical devices / other OSes.
 - **Phone polish**: landscape lock, low-battery warning.
 
 ### Known limitations
