@@ -11,7 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+// In dev, the repo root (this file's ../). Under the SEA single-exe there are no
+// source files on disk, so the launcher passes the working dir via MULTICAM_ROOT.
+const ROOT = process.env.MULTICAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..');
 const RECORDINGS = join(ROOT, 'recordings');
 const SAFE = /^[A-Za-z0-9._-]+$/;   // single path segment, no separators
 

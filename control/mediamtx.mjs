@@ -4,7 +4,7 @@
 // touching the rest of the service. Currently recording is toggled per-path at
 // runtime via the config patch endpoint.
 
-const API = 'http://127.0.0.1:9997';
+const API = process.env.MULTICAM_MEDIAMTX_API || 'http://127.0.0.1:9997';
 const TIMEOUT_MS = 5000;
 
 export class MediaMTX {

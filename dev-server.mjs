@@ -6,7 +6,7 @@
 import { createServer } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { readFileSync, createReadStream, existsSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, normalize, extname, resolve } from 'node:path';
 
 // MediaMTX WebRTC signalling (localhost). WHIP/WHEP requests are proxied here so
@@ -44,22 +44,11 @@ function proxyPathsStatus(res) {
   up.end();
 }
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const serveDir = resolve(process.argv[2] || join(__dirname, 'phone-pwa'));
-const certDir = join(__dirname, 'certs');
-const certPath = join(certDir, 'server-cert.pem');
-const keyPath = join(certDir, 'server-key.pem');
-
-if (!existsSync(certPath) || !existsSync(keyPath)) {
-  console.error('Missing TLS cert. Run setup/make-certs.ps1 first.');
-  process.exit(1);
-}
-if (!existsSync(serveDir)) {
-  console.error('Serve directory not found:', serveDir);
-  process.exit(1);
-}
-
-const options = { cert: readFileSync(certPath), key: readFileSync(keyPath) };
+// In dev, this file's dir is the repo root; under the SEA single-exe there are
+// no source files on disk, so the launcher passes the working dir as
+// MULTICAM_ROOT. (Resolve import.meta.url only as a fallback — it's empty in the
+// bundled CJS, and the SEA path always has MULTICAM_ROOT set.)
+const APP_ROOT = process.env.MULTICAM_ROOT || dirname(fileURLToPath(import.meta.url));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -72,7 +61,25 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-const server = createServer(options, (req, res) => {
+// Start a TLS static server for `dir` on `port`. Factored so the SEA single-exe
+// can launch it in-process (multicam __server <dir> <port>) and the dev CLI can
+// spawn it as `node dev-server.mjs <dir> <port>`.
+export function runDevServer(dirArg, portArg) {
+  const serveDir = resolve(dirArg ? join(APP_ROOT, dirArg) : join(APP_ROOT, 'phone-pwa'));
+  const certDir = join(APP_ROOT, 'certs');
+  const certPath = join(certDir, 'server-cert.pem');
+  const keyPath = join(certDir, 'server-key.pem');
+  if (!existsSync(certPath) || !existsSync(keyPath)) {
+    console.error('Missing TLS cert. Run `npm run certs` (or setup/make-certs.ps1) first.');
+    process.exit(1);
+  }
+  if (!existsSync(serveDir)) {
+    console.error('Serve directory not found:', serveDir);
+    process.exit(1);
+  }
+  const options = { cert: readFileSync(certPath), key: readFileSync(keyPath) };
+
+  const server = createServer(options, (req, res) => {
   let urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
 
   // WHIP/WHEP → MediaMTX (same-origin from the phone's perspective).
@@ -121,8 +128,14 @@ server.on('upgrade', (req, socket, head) => {
   up.end();
 });
 
-const PORT = process.argv[3] || process.env.PORT || 8443;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`HTTPS server on :${PORT} serving ${serveDir}`);
-  console.log(`Open https://<this-laptop-LAN-IP>:${PORT}/ on a phone on the same WiFi.`);
-});
+  const PORT = portArg || process.env.PORT || 8443;
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`HTTPS server on :${PORT} serving ${serveDir}`);
+    console.log(`Open https://<this-laptop-LAN-IP>:${PORT}/ on a phone on the same WiFi.`);
+  });
+  return server;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runDevServer(process.argv[2], process.argv[3]);
+}

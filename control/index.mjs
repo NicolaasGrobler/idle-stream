@@ -583,7 +583,7 @@ function handleHttp(svc, req, res) {
 }
 
 // ----- Main: wire the real HTTP + WebSocket server --------------------------
-async function main() {
+export async function runControl() {
   const { WebSocketServer } = await import('ws');
   const mtx = new MediaMTX();
   const svc = createService(mtx);
@@ -613,13 +613,14 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  server.listen(9000, '127.0.0.1', () => {
-    console.log('Control service on http://127.0.0.1:9000  (ws: /ws/phone, /ws/operator)');
+  const port = Number(process.env.MULTICAM_CONTROL_PORT) || 9000;
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`Control service on http://127.0.0.1:${port}  (ws: /ws/phone, /ws/operator)`);
   });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((e) => {
+  runControl().catch((e) => {
     console.error(e);
     process.exit(1);
   });

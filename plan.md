@@ -143,12 +143,13 @@ idle-stream/
 ├── milestone1/                   # standalone publisher (superseded by phone-pwa; kept as a no-orchestration test)
 ├── dev-server.mjs                # TLS static server + WHIP/WHEP/WS reverse proxy
 ├── cli/{index,platform,tools,certs}.mjs   # cross-platform launcher (npm run setup|certs|up|down)
-├── package.json                  # npm scripts -> cli; "multicam" bin; ws dep + test
+├── build/{entry,build-sea}.mjs   # esbuild bundle + Node SEA single-exe build (npm run build:exe)
+├── package.json                  # npm scripts -> cli; "multicam" bin; ws dep + esbuild/postject dev deps
 ├── package-lock.json             # (node_modules/ gitignored; npm install restores)
 ├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # Windows PowerShell equivalents of the CLI
 ├── scripts/{dev-up,dev-down}.ps1 # Windows start/stop (same behavior as cli up/down)
 ├── tools/                        # mkcert, mediamtx, ffmpeg, ffprobe binaries (gitignored; npm run setup re-downloads)
-├── certs/  data/  recordings/  exports/  logs/   # all gitignored
+├── certs/  data/  recordings/  exports/  logs/  dist/   # all gitignored
 └── plan.md
 ```
 
@@ -170,6 +171,36 @@ Windows users can instead run the equivalent PowerShell scripts: `setup\fetch-to
 `setup\make-certs.ps1`, `scripts\dev-up.ps1`, `scripts\dev-down.ps1`. Both paths share
 the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 
+### Single-exe build (no Node install to run)
+
+The all-Node runtime can be packaged as one **Node SEA** binary so an operator
+needs neither Node nor `npm install`:
+
+```bash
+npm run build:exe        # -> dist/multicam(.exe)
+# or just the bundle:
+npm run build:bundle     # -> dist/multicam.cjs
+```
+
+How it works (`build/`): SEA embeds a single CommonJS script into a copy of the
+`node` binary, so `build-sea.mjs` first **esbuild-bundles** the ESM sources
+(`cli` + `control` + `dev-server`) and the one npm dep (`ws`) into
+`dist/multicam.cjs`, then runs Node's `--experimental-sea-config` blob step and
+injects it with `postject`'s programmatic API. `build/entry.mjs` is the bundle
+entry: it sets the working-root env, then dispatches `multicam <tools|certs|up|down>`
+plus two **internal** subcommands — `multicam __control` and `multicam __server <dir> <port>`
+— which is how `up` launches the four-process stack from the one binary
+(`process.execPath` is the exe; children inherit the env). Every module resolves
+its disk root from `MULTICAM_ROOT` (set by the entry to `process.cwd()`),
+falling back to the source-relative path in dev — so the same code runs both as
+`node cli/index.mjs` and inside the SEA exe.
+
+The **Go binaries stay external** in `tools/` (mkcert, mediamtx, ffmpeg). The exe
+isn't fully standalone: run it from a working directory laid out like the repo
+(`tools/`, `phone-pwa/`, `operator-dashboard/`, `mediamtx/`, and the writable
+`certs/ data/ recordings/ exports/ logs/`). It replaces the Node install +
+`node_modules` + the `.mjs` sources, not the asset/working dirs.
+
 ## Build Status
 
 - **M0 — iOS camera over LAN HTTPS**: done (mkcert CA, validated on a real iPhone).
@@ -185,6 +216,7 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 - **Recordings list/download**: done — read-only `/api/*` endpoints + a dashboard Recordings modal to browse and download per-angle files and the `switches.json` logs. API validated direct + via the TLS proxy (incl. traversal rejection); modal rendering validated in a browser.
 - **Pre-flight check**: done — dashboard modal checks each assigned camera for live + H.264 + audio (from MediaMTX `tracks`) and a disk writable/free check (`/api/preflight`), with a pass/warn/fail verdict. Endpoint + checklist rendering validated.
 - **Phone polish**: done — landscape-rotate overlay (best-effort lock on Android) and battery reporting to the operator (local badge + roster badge) where supported. Overlay + battery rendering validated in a browser; battery-in-status flow validated offline.
+- **Single-exe build**: done — `npm run build:exe` produces a Node SEA binary (`dist/multicam.exe`) by esbuild-bundling cli + control + dev-server + `ws` into one CJS file, then SEA blob + `postject` inject. The entry multiplexes `tools|certs|up|down` plus internal `__control`/`__server` subcommands so `up` runs the whole stack from the one binary; the Go tools stay external. Validated on Windows: the bundled `ws` accepts a live WebSocket and the exe serves the dashboard over TLS via `__server`; `npm test` still green after the refactor. macOS/Linux build paths (BtbN/evermeet ffmpeg, `chmod`) are written but unverified.
 - **Session export**: done — `control/exports.mjs` renders a session's switch log to one re-encoded 1080p30 H.264+AAC MP4 (program-segment cuts + black/silence fillers for missing footage), exposed as async `/api/export*` routes with a progress-tracking Export button on each session card. ffmpeg/ffprobe are added to the tool download (BtbN static builds on Windows/Linux, evermeet on macOS; falls back to a PATH binary). Engine validated end-to-end with real ffmpeg (correct cut boundaries, black tail, audio, duration); HTTP routes + dashboard UI validated via the proxy-repro trick; segment/parts planner covered by `npm test`.
 
 ### Next
@@ -193,6 +225,7 @@ the same LAN-IP detection, cert auto-reissue, and `mediamtx.gen.yml` rendering.
 
 ### Known limitations
 - The cross-platform Node launcher (`cli/`) is validated on Windows; the macOS/Linux branches (tool download/extract via `tar`, `lsof`-based stop) are written but unverified on those OSes.
+- **Single-exe build** is verified on Windows only; the macOS/Linux `build:exe` paths (ffmpeg sources, `chmod`) are unverified. The injected exe trips an "Authenticode signature corrupted" warning (expected — `postject` appends a resource to the signed `node` binary); it still runs. The exe is not standalone — it needs a working directory with `tools/` and the asset/writable dirs (see [Single-exe build](#single-exe-build-no-node-install-to-run)).
 - **Session export (v1)** re-encodes to a fixed **1080p30** H.264 + AAC and uses **one camera per program segment** with the active camera's audio (no transitions, no audio mixing/ducking, no per-export resolution/bitrate choice). Cross-clip sync is **approximate** (sub-second), matching the preview player — not frame-accurate. ffmpeg is pulled from BtbN's rolling `latest` build (Windows/Linux) and evermeet (macOS, Intel — runs under Rosetta on Apple Silicon); only the Windows download path is verified.
 
 ## Future: Live Streaming (not v1)

@@ -5,11 +5,22 @@
 import { existsSync, mkdirSync, openSync } from 'node:fs';
 import { spawn, execSync } from 'node:child_process';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { paths, getLanIP, renderMediamtxConfig, parseIpFlag, isWin } from './platform.mjs';
 import { fetchTools } from './tools.mjs';
 import { makeCerts, issueCert, issuedCertIp, certExists } from './certs.mjs';
 
 const PORTS = [8443, 8444, 8889, 9000];
+
+// When packaged as a SEA single-exe, the entry sets MULTICAM_SEA. In that mode
+// there are no .mjs files to run, so the control service and dev-servers are
+// launched by re-invoking this same binary with internal subcommands. In dev,
+// they're plain `node <file>.mjs` spawns. Children inherit MULTICAM_ROOT/_SEA.
+const IS_SEA = process.env.MULTICAM_SEA === '1';
+const svcArgs = (kind, ...extra) => {
+  if (kind === 'control') return IS_SEA ? ['__control'] : ['control/index.mjs'];
+  return IS_SEA ? ['__server', ...extra] : ['dev-server.mjs', ...extra];
+};
 
 function startSvc(name, file, args, cwd) {
   const out = openSync(join(paths.logs, `${name}.out.log`), 'w');
@@ -42,9 +53,9 @@ async function up(prefIp) {
 
   console.log(`Starting studio stack (LAN IP ${ip})...`);
   startSvc('mediamtx', paths.mediamtx, ['mediamtx/mediamtx.gen.yml'], paths.root);
-  startSvc('control', process.execPath, ['control/index.mjs'], paths.root);
-  startSvc('phone', process.execPath, ['dev-server.mjs', 'phone-pwa', '8443'], paths.root);
-  startSvc('operator', process.execPath, ['dev-server.mjs', 'operator-dashboard', '8444'], paths.root);
+  startSvc('control', process.execPath, svcArgs('control'), paths.root);
+  startSvc('phone', process.execPath, svcArgs('server', 'phone-pwa', '8443'), paths.root);
+  startSvc('operator', process.execPath, svcArgs('server', 'operator-dashboard', '8444'), paths.root);
 
   console.log('');
   console.log('Stack up.');
@@ -90,20 +101,27 @@ function usage() {
   console.log('  down    stop the stack');
 }
 
-const [cmd, ...rest] = process.argv.slice(2);
-const prefIp = parseIpFlag(rest);
-
-try {
-  switch (cmd) {
-    case 'tools': await fetchTools(); break;
-    case 'certs': makeCerts(getLanIP(prefIp)); break;
-    case 'up': await up(prefIp); break;
-    case 'down': down(); break;
-    default:
-      usage();
-      if (cmd) process.exitCode = 1;
+export async function runCli(args) {
+  const [cmd, ...rest] = args;
+  const prefIp = parseIpFlag(rest);
+  try {
+    switch (cmd) {
+      case 'tools': await fetchTools(); break;
+      case 'certs': makeCerts(getLanIP(prefIp)); break;
+      case 'up': await up(prefIp); break;
+      case 'down': down(); break;
+      default:
+        usage();
+        if (cmd) process.exitCode = 1;
+    }
+  } catch (e) {
+    console.error(`\nError: ${e.message}`);
+    process.exitCode = 1;
   }
-} catch (e) {
-  console.error(`\nError: ${e.message}`);
-  process.exitCode = 1;
+}
+
+// Run directly (`node cli/index.mjs ...`). When imported — including by the SEA
+// bundle's entry — this stays dormant and the caller invokes runCli().
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCli(process.argv.slice(2));
 }

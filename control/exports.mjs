@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { listRecordings, resolveRecording } from './recordings.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = process.env.MULTICAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..');
 const TOOLS = join(ROOT, 'tools');
 const EXPORTS = join(ROOT, 'exports');
 const isWin = process.platform === 'win32';

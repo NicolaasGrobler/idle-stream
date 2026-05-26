@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { makeCamera } from './state.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = process.env.MULTICAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..');
 const STORE = join(ROOT, 'data', 'cameras.json');
 const DEFAULTS = [
   { id: 'cam1', label: 'Wide' },

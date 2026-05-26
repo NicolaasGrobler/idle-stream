@@ -4,7 +4,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
-export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// In dev, the repo root (this file's ../). Under the SEA single-exe the entry
+// sets MULTICAM_ROOT to the working dir (source files aren't on disk there).
+export const ROOT = process.env.MULTICAM_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const isWin = process.platform === 'win32';
 const exe = isWin ? '.exe' : '';
 

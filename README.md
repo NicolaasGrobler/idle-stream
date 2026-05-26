@@ -86,6 +86,23 @@ re-distributing the root cert), and configures MediaMTX accordingly. Move from a
 test network to the venue and run `npm run up` there — no hand-editing. To force a
 specific address: `npm run up -- --ip 10.0.0.5`.
 
+### Single binary (optional)
+
+Package the whole thing into one executable so the operator's machine needs
+neither Node nor `npm install`:
+
+```bash
+npm run build:exe    # -> dist/multicam(.exe)   (uses esbuild + Node SEA)
+```
+
+Drop `multicam(.exe)` into a folder laid out like the repo (with `tools/`,
+`phone-pwa/`, `operator-dashboard/`, `mediamtx/`, and writable `certs/ data/
+recordings/ exports/ logs/`) and run `multicam up` / `multicam down` — same
+commands, no Node required. The mkcert/MediaMTX/ffmpeg binaries stay external in
+`tools/`. See [plan.md](plan.md#single-exe-build-no-node-install-to-run) for how
+the build works. (Verified on Windows; the macOS/Linux build paths are written
+but unverified.)
+
 ## Using it
 
 1. **On each phone:** open the phone URL, enter a name, pick front/back, tap
@@ -154,6 +171,7 @@ control/              Node control service (cameras, slots, record, switch log) 
 mediamtx/             MediaMTX config template (dev-up renders the per-network copy)
 dev-server.mjs        TLS static server + WHIP/WHEP/WS reverse proxy
 cli/                  Cross-platform launcher (npm run setup|certs|up|down)
+build/                esbuild bundle + Node SEA single-exe build (npm run build:exe)
 setup/, scripts/      Windows PowerShell equivalents of the CLI commands
 milestone0/, milestone1/   Standalone diagnostics (camera-over-HTTPS, single publisher)
 plan.md               Full design doc

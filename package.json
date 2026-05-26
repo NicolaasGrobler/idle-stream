@@ -13,6 +13,8 @@
     "certs": "node cli/index.mjs certs",
     "up": "node cli/index.mjs up",
     "down": "node cli/index.mjs down",
+    "build:bundle": "node build/build-sea.mjs --bundle-only",
+    "build:exe": "node build/build-sea.mjs",
     "test": "node --test \"control/test/*.test.mjs\""
   },
   "dependencies": {
@@ -20,5 +22,9 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "postject": "^1.0.0-alpha.6"
   }
 }
