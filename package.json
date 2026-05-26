@@ -27,6 +27,6 @@
     "esbuild": "^0.28.0",
     "png-to-ico": "^3.0.1",
     "postject": "^1.0.0-alpha.6",
-    "rcedit": "^5.0.2"
+    "resedit": "^3.0.2"
   }
 }
