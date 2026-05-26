@@ -15,6 +15,7 @@
     "down": "node cli/index.mjs down",
     "build:bundle": "node build/build-sea.mjs --bundle-only",
     "build:exe": "node build/build-sea.mjs",
+    "build:installer": "node build/build-installer.mjs",
     "test": "node --test \"control/test/*.test.mjs\""
   },
   "dependencies": {
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
+    "innosetup-compiler": "^6.3.1",
     "png-to-ico": "^3.0.1",
     "postject": "^1.0.0-alpha.6",
     "resedit": "^3.0.2"

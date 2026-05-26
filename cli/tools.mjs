@@ -3,8 +3,27 @@
 // system `tar` (bsdtar on Windows 10+/macOS, GNU tar on Linux) for extraction.
 import { existsSync, mkdirSync, rmSync, chmodSync, writeFileSync, readdirSync, statSync, renameSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { paths, target, isWin } from './platform.mjs';
+
+// The tar to extract with. On Windows pin to the system bsdtar (libarchive):
+// it handles zip + gzip + xz, whereas a `tar` from Git Bash / MSYS is GNU tar,
+// which can't read zip and mangles `C:\` paths. Elsewhere the system tar is fine.
+function tarBin() {
+  if (isWin) {
+    const sys = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+    if (existsSync(sys)) return sys;
+  }
+  return 'tar';
+}
+
+// Extract an archive (in tools/) into tools/<destName>. Args are RELATIVE to
+// cwd=tools/ so no argument carries a `C:` drive prefix. `tar -xf` auto-detects
+// zip (bsdtar), gzip, and xz.
+function extract(archiveName, destName) {
+  mkdirSync(join(paths.tools, destName), { recursive: true });
+  execFileSync(tarBin(), ['-xf', archiveName, '-C', destName], { cwd: paths.tools, stdio: 'inherit' });
+}
 
 const MEDIAMTX_VERSION = 'v1.18.2';
 const MKCERT_VERSION = 'v1.4.4';
@@ -72,8 +91,7 @@ export async function fetchTools() {
     const archive = join(paths.tools, `mediamtx.${ext}`);
     console.log(`Downloading MediaMTX ${MEDIAMTX_VERSION} (${platform}/${arch})...`);
     await download(url, archive);
-    // `tar -xf` auto-detects zip (bsdtar) and gzip on every supported platform.
-    execFileSync('tar', ['-xf', archive, '-C', paths.tools], { stdio: 'inherit' });
+    extract(`mediamtx.${ext}`, '.');
     rmSync(archive, { force: true });
     // We ship our own config; drop the bundled default so it can't be picked up.
     rmSync(join(paths.tools, 'mediamtx.yml'), { force: true });
@@ -90,9 +108,7 @@ export async function fetchTools() {
       console.log(`Downloading ffmpeg (${platform}/${arch}) from ${new URL(src.url).host}...`);
       await download(src.url, archive);
       rmSync(tmp, { recursive: true, force: true });
-      mkdirSync(tmp, { recursive: true });
-      // `tar -xf` auto-detects zip (bsdtar), gzip, and xz (where liblzma exists).
-      execFileSync('tar', ['-xf', archive, '-C', tmp], { stdio: 'inherit' });
+      extract(`ffmpeg-dl.${src.ext}`, 'ffmpeg-extract');
       for (const bin of src.bins) {
         const found = findFile(tmp, bin);
         if (!found) throw new Error(`ffmpeg archive missing ${bin}`);

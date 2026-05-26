@@ -143,7 +143,7 @@ idle-stream/
 ├── milestone1/                   # standalone publisher (superseded by phone-pwa; kept as a no-orchestration test)
 ├── dev-server.mjs                # TLS static server + WHIP/WHEP/WS reverse proxy
 ├── cli/{index,platform,tools,certs}.mjs   # cross-platform launcher (npm run setup|certs|up|down)
-├── build/{entry,build-sea}.mjs   # esbuild bundle + Node SEA single-exe build (npm run build:exe)
+├── build/{entry,build-sea,build-installer}.mjs   # SEA single-exe + Windows installer builds
 ├── package.json                  # npm scripts -> cli; "multicam" bin; ws dep + esbuild/postject dev deps
 ├── package-lock.json             # (node_modules/ gitignored; npm install restores)
 ├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # Windows PowerShell equivalents of the CLI
@@ -209,6 +209,18 @@ Closing the window or pressing Ctrl+C (or `q`) stops every service — window op
 = studio on. A startup error pauses instead of vanishing so it's readable.
 `multicam up`/`down` remain for headless/background use (detached, stop via
 `down`). `multicam start` is the explicit form of the launcher.
+
+**Windows installer** (`build/build-installer.mjs`, `npm run build:installer`):
+wraps the exe + web assets + `mediamtx.yml` + the native tools into one Inno
+Setup installer (via the `innosetup-compiler` npm wrapper — no manual Inno Setup
+install). It's **fully offline** (~300 MB, bundles ffmpeg/mediamtx/mkcert),
+installs to `Documents\Wireless Multicam Studio`, creates the writable runtime
+dirs + Start Menu/desktop shortcuts, and offers a one-time `multicam certs` step.
+`certs` **self-elevates** on the packaged exe (UAC via PowerShell `RunAs`) since
+installing the local CA needs admin; re-issuing the leaf cert on a network change
+does not, so the launcher handles that silently. Tool extraction uses the
+Windows system **bsdtar** (`System32\tar.exe`) explicitly — a Git-Bash GNU `tar`
+can't read the ffmpeg zip.
 
 The **Go binaries stay external** in `tools/` (mkcert, mediamtx, ffmpeg). The exe
 isn't fully standalone: it must sit in a folder laid out like the repo (`tools/`,

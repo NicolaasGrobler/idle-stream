@@ -97,6 +97,26 @@ function down() {
   console.log('Stack stopped.');
 }
 
+// Is this Windows process elevated? `net session` only succeeds as admin.
+function isAdminWin() {
+  try { execSync('net session', { stdio: 'ignore' }); return true; } catch { return false; }
+}
+
+// Re-launch this exe elevated (UAC prompt) with the given args, and wait. Used
+// for `certs` from the packaged exe, where installing the local CA needs admin.
+function relaunchElevated(args) {
+  const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+  const argList = args.length ? args.map(q).join(',') : "''";
+  const cmd = `Start-Process -FilePath ${q(process.execPath)} -ArgumentList ${argList} -Verb RunAs -Wait`;
+  console.log('Requesting administrator access for one-time certificate setup...');
+  try {
+    execSync(`powershell -NoProfile -Command "${cmd}"`, { stdio: 'inherit' });
+  } catch {
+    console.error('Elevation was declined — the certificate was not installed.');
+    process.exitCode = 1;
+  }
+}
+
 // Open a URL in the default browser (best-effort, non-blocking). Suppressed by
 // MULTICAM_NO_OPEN=1 (used by automated tests of the launcher).
 function openBrowser(url) {
@@ -208,7 +228,13 @@ export async function runCli(args) {
   try {
     switch (cmd) {
       case 'tools': await fetchTools(); break;
-      case 'certs': makeCerts(getLanIP(prefIp)); break;
+      case 'certs':
+        // Installing the local CA needs admin. From the packaged exe, self-elevate
+        // (UAC) so the "first-time setup" shortcut just works; in dev the user
+        // runs their own elevated shell if needed.
+        if (IS_SEA && isWin && !isAdminWin()) { relaunchElevated(['certs', ...(prefIp ? ['--ip', prefIp] : [])]); break; }
+        makeCerts(getLanIP(prefIp));
+        break;
       case 'start': await launch(prefIp); break;
       case 'up': await up(prefIp); break;
       case 'down': down(); break;

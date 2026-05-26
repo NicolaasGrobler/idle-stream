@@ -86,10 +86,27 @@ re-distributing the root cert), and configures MediaMTX accordingly. Move from a
 test network to the venue and run `npm run up` there — no hand-editing. To force a
 specific address: `npm run up -- --ip 10.0.0.5`.
 
+### Windows installer (optional)
+
+For a no-Node, double-click experience, build a Windows installer that lays down
+a ready-to-run folder (launcher + tools + assets + writable dirs), Start Menu /
+desktop shortcuts, and a one-time HTTPS-cert setup step:
+
+```bash
+npm run setup            # once: make sure tools/ has mkcert + mediamtx + ffmpeg
+npm run build:installer  # -> dist/WirelessMulticamStudio-Setup.exe  (Windows, ~300 MB, fully offline)
+```
+
+The installer bundles everything (no internet needed on the target), installs to
+`Documents\Wireless Multicam Studio`, and adds shortcuts. After installing, run
+**"Wireless Multicam Studio (first-time HTTPS setup)"** once (it prompts for
+admin to install the local CA), then double-click **Wireless Multicam Studio** to
+run. Trust `rootCA.pem` on each phone as above.
+
 ### Single binary (optional)
 
-Package the whole thing into one executable so the operator's machine needs
-neither Node nor `npm install`:
+Or just package the launcher into one executable (no installer) so the machine
+needs neither Node nor `npm install`:
 
 ```bash
 npm run build:exe    # -> dist/multicam(.exe)   (uses esbuild + Node SEA; Windows also gets an icon)
