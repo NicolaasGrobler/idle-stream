@@ -15,10 +15,6 @@ export const paths = {
   logs: join(ROOT, 'logs'),
   mkcert: join(ROOT, 'tools', `mkcert${exe}`),
   mediamtx: join(ROOT, 'tools', `mediamtx${exe}`),
-  // uvicorn's interpreter lives in a different place per-OS inside the venv.
-  venvPython: isWin
-    ? join(ROOT, 'control', '.venv', 'Scripts', 'python.exe')
-    : join(ROOT, 'control', '.venv', 'bin', 'python'),
   mediamtxConfig: join(ROOT, 'mediamtx', 'mediamtx.yml'),
   mediamtxConfigGen: join(ROOT, 'mediamtx', 'mediamtx.gen.yml'),
   certIpFile: join(ROOT, 'certs', '.lan-ip'),

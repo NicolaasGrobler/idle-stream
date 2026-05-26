@@ -23,7 +23,6 @@ Set-Location $root
 
 if (-not (Test-Path "$root\tools\mediamtx.exe")) { throw "Missing tools. Run .\setup\fetch-tools.ps1" }
 if (-not (Test-Path "$root\certs\server-cert.pem")) { throw "Missing certs. Run .\setup\make-certs.ps1" }
-if (-not (Test-Path "$root\control\.venv\Scripts\python.exe")) { throw "Missing control venv. Create it: python -m venv control\.venv; control\.venv\Scripts\pip install -r control\requirements.txt" }
 
 $logs = Join-Path $root 'logs'
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
@@ -68,7 +67,7 @@ function Start-Svc($name, $file, $svcArgs, $wd) {
 
 Write-Host "Starting studio stack (LAN IP $ip)..."
 Start-Svc 'mediamtx' "$root\tools\mediamtx.exe" @('mediamtx\mediamtx.gen.yml') $root
-Start-Svc 'control'  "$root\control\.venv\Scripts\python.exe" @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','9000') "$root\control"
+Start-Svc 'control'  'node' @('control\index.mjs') $root
 Start-Svc 'phone'    'node' @('dev-server.mjs','phone-pwa','8443') $root
 Start-Svc 'operator' 'node' @('dev-server.mjs','operator-dashboard','8444') $root
 

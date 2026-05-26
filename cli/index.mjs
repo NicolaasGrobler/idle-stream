@@ -26,11 +26,6 @@ async function up(prefIp) {
   if (!certExists()) {
     throw new Error('Missing certs. Run:  npm run certs');
   }
-  if (!existsSync(paths.venvPython)) {
-    throw new Error('Missing control venv. Create it:\n'
-      + '  python -m venv control/.venv\n'
-      + `  ${isWin ? 'control\\.venv\\Scripts\\pip' : 'control/.venv/bin/pip'} install -r control/requirements.txt`);
-  }
 
   const ip = getLanIP(prefIp);
 
@@ -47,7 +42,7 @@ async function up(prefIp) {
 
   console.log(`Starting studio stack (LAN IP ${ip})...`);
   startSvc('mediamtx', paths.mediamtx, ['mediamtx/mediamtx.gen.yml'], paths.root);
-  startSvc('control', paths.venvPython, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '9000'], join(paths.root, 'control'));
+  startSvc('control', process.execPath, ['control/index.mjs'], paths.root);
   startSvc('phone', process.execPath, ['dev-server.mjs', 'phone-pwa', '8443'], paths.root);
   startSvc('operator', process.execPath, ['dev-server.mjs', 'operator-dashboard', '8444'], paths.root);
 

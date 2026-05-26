@@ -102,7 +102,7 @@ const server = createServer(options, (req, res) => {
   createReadStream(filePath).pipe(res);
 });
 
-// Proxy WebSocket upgrades on /ws/* to the FastAPI control service (localhost).
+// Proxy WebSocket upgrades on /ws/* to the control service (localhost).
 // Keeps the coordination channel same-origin (wss on this server) — no separate
 // port for the browser, which keeps iOS happy.
 server.on('upgrade', (req, socket, head) => {
