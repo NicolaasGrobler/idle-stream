@@ -466,6 +466,45 @@ test('snapshot includes the previewing flag', async () => {
   assert.equal(svc.state.snapshot().previewing, true);
 });
 
+test('phone assignments survive a control-service restart', async () => {
+  const store = {};                                   // shared on-disk assignments map
+  const opts = { loadAssignments: () => store, saveAssignments: (m) => Object.assign(store, m) };
+  const cams = [{ id: 'cam1', label: 'Wide' }, { id: 'cam2', label: 'Center' }];
+
+  // First service instance: two phones assigned.
+  let mtx = new StubMTX();
+  let svc = createService(mtx, { saveCameras: () => {}, appendSession: () => {}, ...opts });
+  svc.state.cameras = cams.map((c) => ({ ...c }));
+  let op = svc.connectOperator(new FakeWS());
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pb', name: 'B' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  await op.feed({ type: 'assign', phoneId: 'pb', slot: 'cam2' });
+  assert.equal(store.pa.slot, 'cam1');
+  assert.equal(store.pb.slot, 'cam2');
+
+  // Simulate a restart: brand-new service, fresh state, same persisted store.
+  mtx = new StubMTX();
+  svc = createService(mtx, { saveCameras: () => {}, appendSession: () => {}, ...opts });
+  svc.state.cameras = cams.map((c) => ({ ...c }));
+  op = svc.connectOperator(new FakeWS());
+  assert.equal(svc.state.phones.size, 0);             // assignments aren't phones — roster starts empty
+
+  // Phones reconnect (as the real ones do) and are restored to their slots.
+  const ws = new FakeWS();
+  await svc.connectPhone(ws).feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  assert.equal(svc.state.phones.get('pa').slot, 'cam1');
+  assert.equal(ws.last('assigned').slot, 'cam1');     // phone told its restored slot
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pb', name: 'B' });
+  assert.equal(svc.state.phones.get('pb').slot, 'cam2');
+
+  // A restored slot isn't double-assigned if another phone already holds it.
+  const wsDup = new FakeWS();
+  await svc.connectPhone(wsDup).feed({ type: 'register', phoneId: 'pa', name: 'A dup' });
+  // pa already connected with cam1; the dup register revives the same record (slot kept).
+  assert.equal(svc.state.phones.get('pa').slot, 'cam1');
+});
+
 test('recordings download rejects path traversal', () => {
   // Valid single segments that don't exist still return null (no file), but the
   // point here is that traversal / separators are rejected outright.

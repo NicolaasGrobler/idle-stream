@@ -15,6 +15,7 @@ import { MediaMTX } from './mediamtx.mjs';
 import * as camerasStore from './cameras.mjs';
 import * as switchesStore from './switches.mjs';
 import * as recordingsStore from './recordings.mjs';
+import * as assignmentsStore from './assignments.mjs';
 
 // Auto-stop a recording this many seconds after the last publisher drops (e.g.
 // the event ended). The grace window tolerates brief WiFi blips — a phone that
@@ -36,6 +37,10 @@ export function createService(mtx, opts = {}) {
   const saveCameras = opts.saveCameras ?? camerasStore.save;
   const appendSession = opts.appendSession ?? switchesStore.appendSession;
   const loadCameras = opts.loadCameras ?? camerasStore.load;
+  const saveAssignments = opts.saveAssignments ?? assignmentsStore.save;
+  const loadAssignments = opts.loadAssignments ?? assignmentsStore.load;
+  // {phoneId: {name, slot}} mirror, persisted so a restart restores assignments.
+  const assignments = loadAssignments();
 
   const state = new SessionState();
   const operators = new Set();
@@ -72,6 +77,14 @@ export function createService(mtx, opts = {}) {
 
   function persistCameras() {
     saveCameras(state.cameras);
+  }
+
+  // Merge current phones into the persisted assignment map (keeps entries for
+  // phones not currently connected, e.g. ones that haven't reconnected yet
+  // after a restart) and write it.
+  function persistAssignments() {
+    for (const p of state.phones.values()) assignments[p.id] = { name: p.name, slot: p.slot };
+    saveAssignments(assignments);
   }
 
   // Turn recording off for every path and finalize the switch-log session.
@@ -147,7 +160,15 @@ export function createService(mtx, opts = {}) {
         } else {
           p = makePhone(phoneId, name || `Phone ${phoneId}`);
           state.phones.set(phoneId, p);
+          // Restore a persisted assignment (e.g. after a control-service restart),
+          // as long as the camera still exists and isn't already taken.
+          const saved = assignments[phoneId];
+          if (saved && saved.slot && state.cameraIds().includes(saved.slot)
+              && state.slotOwner(saved.slot) === null) {
+            p.slot = saved.slot;
+          }
         }
+        persistAssignments();
         wsSend(ws, { type: 'registered', phoneId, recording: state.recording });
         if (p.slot) {                            // restore the armed state on the phone
           wsSend(ws, assignedMsg(p.slot));
@@ -229,6 +250,7 @@ export function createService(mtx, opts = {}) {
         if (state.recording) await mtx.setRecord(cid, false);
         await mtx.deletePath(cid);
         persistCameras();
+        persistAssignments();
         broadcastState();
       }
 
@@ -251,6 +273,7 @@ export function createService(mtx, opts = {}) {
         if (state.previewing || state.recording) {
           sendPhone(pid, { type: 'command', action: 'publish', slot });
         }
+        persistAssignments();
         broadcastState();
       }
     } else if (t === 'unassign') {
@@ -258,6 +281,7 @@ export function createService(mtx, opts = {}) {
       if (state.phones.has(pid)) {
         state.phones.get(pid).slot = null;
         sendPhone(pid, assignedMsg(null));
+        persistAssignments();
         broadcastState();
       }
     } else if (t === 'removePhone') {
@@ -267,6 +291,8 @@ export function createService(mtx, opts = {}) {
       const p = state.phones.get(pid);
       if (p && !p.connected) {
         state.phones.delete(pid);
+        delete assignments[pid];               // forget it entirely (don't restore on a future connect)
+        saveAssignments(assignments);
         broadcastState();
       }
 
