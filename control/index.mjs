@@ -374,6 +374,23 @@ export function createService(mtx, opts = {}) {
         changed = true;
       }
     }
+
+    // Grow the recording set: a camera that goes live *during* a recording
+    // (a late-joining phone, or one reassigned mid-take) starts recording with
+    // its own start stamp and becomes takeable. Without this, the set frozen at
+    // Record time would silently drop such cameras from both capture and the
+    // switch log. recordingStartedAt stays the session start (min is unchanged
+    // since a late stamp is necessarily later).
+    if (state.recording) {
+      for (const c of state.cameras) {
+        if (ready[c.id] && !Object.prototype.hasOwnProperty.call(state.cameraRecordStarted, c.id)) {
+          await mtx.setRecord(c.id, true);
+          state.cameraRecordStarted[c.id] = now();
+          changed = true;
+        }
+      }
+    }
+
     if (changed) broadcastState();
 
     // Auto-clear a recording left running after every publisher has dropped.

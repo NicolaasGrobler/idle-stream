@@ -428,6 +428,35 @@ test('switch only logs cameras in the recording set', async () => {
   assert.equal(svc.state.switches[0].camId, 'cam1');
 });
 
+test('a camera that goes live mid-recording joins the recording set and is takeable', async () => {
+  const mtx = new StubMTX({ cam1: true });          // only cam1 live at Record
+  const svc = makeSvc(mtx);
+  const op = svc.connectOperator(new FakeWS());
+  const a = svc.connectPhone(new FakeWS());
+  await a.feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  await op.feed({ type: 'startRecording' });
+  assert.deepEqual(Object.keys(svc.state.cameraRecordStarted), ['cam1']);
+  const sessionStart = svc.state.recordingStartedAt;
+
+  // A second phone is assigned to cam2 mid-recording and goes live.
+  const b = svc.connectPhone(new FakeWS());
+  await b.feed({ type: 'register', phoneId: 'pb', name: 'B' });
+  await op.feed({ type: 'assign', phoneId: 'pb', slot: 'cam2' });
+  await op.feed({ type: 'switch', camId: 'cam2' });          // not recording yet -> ignored
+  assert.equal(svc.state.switches.length, 0);
+
+  mtx.ready = { cam1: true, cam2: true };
+  await svc.reconcileOnce();                                  // cam2 now live -> joins the set
+  assert.ok(Object.prototype.hasOwnProperty.call(svc.state.cameraRecordStarted, 'cam2'));
+  assert.equal(mtx.records.cam2, true);
+  assert.equal(svc.state.recordingStartedAt, sessionStart);  // session start unchanged
+
+  await op.feed({ type: 'switch', camId: 'cam2' });          // now recordable -> logged
+  assert.equal(svc.state.switches.length, 1);
+  assert.equal(svc.state.switches[0].camId, 'cam2');
+});
+
 test('snapshot includes the previewing flag', async () => {
   const mtx = new StubMTX();
   const svc = makeSvc(mtx);
