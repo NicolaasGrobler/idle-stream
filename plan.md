@@ -87,7 +87,7 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 
 ### Phone PWA (`phone-pwa/`)
 - Landing: phone name + camera (front/back) → **Join** (one gesture acquires the camera, requests wake lock, connects the control WebSocket, registers).
-- Then **armed**: shows the assigned camera's label and waits. Publishes via **WHIP only on the operator's command**, forcing H.264 and a 5 Mbps target bitrate. Shows live/standby, bitrate, and a REC badge mirroring session state.
+- Then **armed**: shows the assigned camera's label and waits. Publishes via **WHIP only on the operator's command**, forcing H.264 and an 8 Mbps target bitrate at 1080p30. Shows live/standby, bitrate, and a REC badge mirroring session state.
 - **Persistent identity** (`localStorage` id sent on register) so a WebSocket reconnect re-attaches to the same record and keeps the slot. WebSocket auto-reconnect with backoff; on reconnect the server restores the assignment and (if recording) re-issues the publish command.
 - **Landscape guidance**: a "rotate to landscape" overlay when armed in portrait (best-effort `screen.orientation.lock` on Android; iOS Safari has no lock API, so the overlay is the cross-platform mechanism). **Battery**: where the Battery API exists (not iOS Safari), the phone shows a local badge and reports `{level, charging}` to the operator via status messages.
 
@@ -124,7 +124,8 @@ dev-server:
 
 - A camera = `{id: "camN", label}`. The id is the MediaMTX path; the label is editable. New cameras get the next free `camN`.
 - **Two-stage**: Start Preview makes assigned phones publish (no recording). Record patches `record: on` for every live slot — recording starts from that instant, across all cameras together, without dropping publishers. Stop Recording patches them off.
-- Recording is copy-only H.264 + Opus → fMP4. Quality equals what the phone streams (5 Mbps target), not the phone's native camera quality.
+- Recording is copy-only H.264 + Opus → fMP4. Quality equals what the phone streams (8 Mbps target at 1080p30), not the phone's native camera quality.
+- **On Record** the operator can give the session an optional **name** and choose an **opening camera** (logged as the first take at offset 0, so there's no black pre-roll). The name is stored on the session in `data/switches.json` and shown in the recordings browser and preview player.
 - **Switch log = editorial cut list.** A session spans Record→Stop. The operator's takes are logged as offsets from session start (plus absolute wall-clock + per-camera record-start stamps) to `data/switches.json`, so the editor can cut between the clean per-angle files in post. It records intent, not a switched output — no live program feed is produced (see [Future](#future-live-streaming-not-v1)).
 
 ## Repository Layout

@@ -157,6 +157,38 @@ test('switch-log flow: record stamps cameras, takes log offsets, stop finalizes'
   assert.ok(sess.sessionId);
 });
 
+test('startRecording accepts an optional name and an opening take', async () => {
+  const mtx = new StubMTX({ cam1: true, cam2: true });
+  const svc = makeSvc(mtx, { now: () => 1000 });    // constant clock: the opening take lands at offset 0
+  const op = svc.connectOperator(new FakeWS());
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pb', name: 'B' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  await op.feed({ type: 'assign', phoneId: 'pb', slot: 'cam2' });
+
+  await op.feed({ type: 'startRecording', name: '  Sunday Service  ', initialCam: 'cam1' });
+  assert.equal(svc.state.sessionName, 'Sunday Service');           // trimmed
+  assert.equal(svc.state.snapshot().sessionName, 'Sunday Service');
+  assert.equal(svc.state.switches.length, 1);                      // opening take logged
+  assert.equal(svc.state.switches[0].camId, 'cam1');
+  assert.equal(svc.state.switches[0].offset, 0);                   // start of session
+
+  await op.feed({ type: 'stopRecording' });
+  assert.equal(svc.sessions[0].name, 'Sunday Service');            // carried into the finalized session
+  assert.equal(svc.state.sessionName, null);                       // cleared
+});
+
+test('startRecording ignores an opening take for a non-recording camera', async () => {
+  const mtx = new StubMTX({ cam1: true });
+  const svc = makeSvc(mtx);
+  const op = svc.connectOperator(new FakeWS());
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  await op.feed({ type: 'startRecording', initialCam: 'cam2' });   // cam2 not live -> no opening take
+  assert.equal(svc.state.switches.length, 0);
+  assert.equal(svc.state.sessionName, null);
+});
+
 test('startRecording is ignored when already recording (no session reset)', async () => {
   const mtx = new StubMTX({ cam1: true });
   const svc = makeSvc(mtx);

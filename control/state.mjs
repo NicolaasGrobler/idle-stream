@@ -28,6 +28,7 @@ export class SessionState {
     this.recording = false;
     this.recordingStartedAt = null;
     this.sessionId = null;
+    this.sessionName = null;           // optional operator-supplied label for the session
     this.cameraRecordStarted = {};     // camId -> epoch (when record enabled)
     this.switches = [];                // [{t, offset, camId, label}] for the live session
   }
@@ -73,6 +74,7 @@ export class SessionState {
       recording: this.recording,
       recordingStartedAt: this.recordingStartedAt,
       sessionId: this.sessionId,
+      sessionName: this.sessionName,
       cameraRecordStartedAt: this.cameraRecordStarted,
       switches: this.switches,
     };

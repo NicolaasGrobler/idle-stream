@@ -97,6 +97,7 @@ export function createService(mtx, opts = {}) {
       const stopped = now();
       appendSession({
         sessionId: state.sessionId,
+        name: state.sessionName,
         startedAt: state.recordingStartedAt,
         startedAtIso: isoOf(state.recordingStartedAt),
         stoppedAt: stopped,
@@ -114,6 +115,7 @@ export function createService(mtx, opts = {}) {
     state.recording = false;
     state.recordingStartedAt = null;
     state.sessionId = null;
+    state.sessionName = null;
     state.cameraRecordStarted = {};
     state.switches = [];
     for (const pid of [...phoneSockets.keys()]) {
@@ -330,7 +332,17 @@ export function createService(mtx, opts = {}) {
       state.recording = true;
       state.recordingStartedAt = Math.min(...Object.values(state.cameraRecordStarted));
       state.sessionId = randId();
+      state.sessionName = String(msg.name ?? '').trim() || null;
       state.switches = [];
+      // Optional opening take so the program starts on a chosen camera (no
+      // black pre-roll). Only valid if that camera is in the recording set.
+      const initialCam = msg.initialCam;
+      if (initialCam && Object.prototype.hasOwnProperty.call(state.cameraRecordStarted, initialCam)) {
+        const ts = now();
+        state.switches.push({
+          t: ts, offset: round3(ts - state.recordingStartedAt), camId: initialCam, label: state.labelFor(initialCam),
+        });
+      }
       for (const pid of [...phoneSockets.keys()]) {
         sendPhone(pid, { type: 'recording', on: true });
       }
