@@ -1,0 +1,15 @@
+# Normalize line endings: store everything as LF in the repo; check out native.
+* text=auto eol=lf
+
+# Windows-native scripts stay CRLF in the working tree.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Shell scripts must be LF even on Windows checkouts.
+*.sh text eol=lf
+
+# Treat certs/keys and binaries as binary (never line-ending-munged).
+*.pem binary
+*.key binary
+*.exe binary
