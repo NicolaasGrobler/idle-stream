@@ -1,9 +1,9 @@
-// Read-only access to the captured recordings on disk.
+// Access to the captured recordings on disk (list / resolve / delete).
 //
 // MediaMTX writes copy-only fMP4 to recordings/<cam>/<timestamp>.mp4. This lists
-// them for the dashboard and resolves a single file for download — by camera +
-// filename only (validated, joined under the recordings root) so a caller can
-// never traverse outside it.
+// them for the dashboard and resolves a single file for download or deletion —
+// by camera + filename only (validated, joined under the recordings root) so a
+// caller can never traverse outside it.
 import {
   readdirSync, statSync, statfsSync, mkdirSync, writeFileSync, unlinkSync,
 } from 'node:fs';
@@ -82,4 +82,17 @@ export function resolveRecording(cam, name) {
   if (rel.startsWith('..') || isAbsolute(rel)) return null;   // reject anything outside the root
   const st = safeStat(p);
   return st && st.isFile() ? p : null;
+}
+
+// Delete one recording file, addressed the same traversal-safe way. Returns
+// true if a file was removed, false if it didn't resolve to a real file.
+export function deleteRecording(cam, name) {
+  const p = resolveRecording(cam, name);
+  if (!p) return false;
+  try {
+    unlinkSync(p);
+    return true;
+  } catch {
+    return false;
+  }
 }

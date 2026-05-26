@@ -498,6 +498,13 @@ function handleHttp(svc, req, res) {
     sendJson(res, 200, recordingsStore.preflight());
     return;
   }
+  if (req.method === 'DELETE' && path === '/api/recordings/download') {
+    const cam = url.searchParams.get('cam') ?? '';
+    const name = url.searchParams.get('name') ?? '';
+    const ok = recordingsStore.deleteRecording(cam, name);
+    sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
+    return;
+  }
   if ((req.method === 'GET' || req.method === 'HEAD') && path === '/api/recordings/download') {
     const cam = url.searchParams.get('cam') ?? '';
     const name = url.searchParams.get('name') ?? '';

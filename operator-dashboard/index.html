@@ -116,6 +116,8 @@
     .clip-file { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .clip-size { color: #9aa0a6; font-size: 12px; flex: none; font-variant-numeric: tabular-nums; }
     .clip-dl { text-decoration: none; flex: none; }
+    .clip-del { flex: none; }
+    .clip-del:hover { border-color: #dc2626; color: #f87171; }
     /* Pre-flight checklist */
     .pf-verdict { display: inline-block; margin-bottom: 10px; font-size: 14px; }
     .pf-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #1c1c1c; }
@@ -432,7 +434,8 @@
             <div class="clip-file">${escapeHtml(f.name)}</div></div>
             <span class="clip-size">${fmtBytes(f.sizeBytes)}</span>
             <button class="sm go clip-play" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}">▶ Play</button>
-            <a class="sm stop clip-dl" href="${url}" download title="Download">⤓</a></div>`;
+            <a class="sm stop clip-dl" href="${url}" download title="Download">⤓</a>
+            <button class="sm stop clip-del" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}" title="Delete">🗑</button></div>`;
         }).join('');
         return `<div class="cam-group">${head}${rows}</div>`;
       }).join('');
@@ -475,6 +478,8 @@
             b.addEventListener('click', () => { clipCam = b.dataset.cam; renderTab(); }));
           body.querySelectorAll('.clip-play').forEach((b) =>
             b.addEventListener('click', () => openClipPreview(b.dataset.cam, b.dataset.name)));
+          body.querySelectorAll('.clip-del').forEach((b) =>
+            b.addEventListener('click', () => deleteClip(b.dataset.cam, b.dataset.name, load)));
         }
       }
       tabs.forEach((t) => t.addEventListener('click', () => { active = t.dataset.tab; renderTab(); }));
@@ -495,6 +500,20 @@
       load();
     }
     $('recordingsBtn').addEventListener('click', openRecordings);
+
+    // Delete one clip after a confirmation, then re-render the list.
+    async function deleteClip(cam, name, reload) {
+      const ok = await showModal({ title: 'Delete clip',
+        message: `Permanently delete "${name}"? This can't be undone.`, confirmLabel: 'Delete', danger: true });
+      if (!ok) return;
+      try {
+        const res = await fetch(`/api/recordings/download?cam=${encodeURIComponent(cam)}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (reload) reload();
+      } catch (e) {
+        showModal({ title: 'Delete failed', message: e.message, confirmLabel: 'OK' });
+      }
+    }
 
     // ---------- Single-clip preview (native controls) ----------
     function openClipPreview(cam, name) {
