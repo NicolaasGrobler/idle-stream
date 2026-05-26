@@ -352,6 +352,91 @@ test('removeCamera unassigns its phone and deletes the MediaMTX path', async () 
   assert.equal(mtx.paths.has('cam1'), false);
 });
 
+test('preview follows assignment: a phone assigned while previewing auto-publishes', async () => {
+  const mtx = new StubMTX();
+  const svc = makeSvc(mtx);
+  const op = svc.connectOperator(new FakeWS());
+  const aWs = new FakeWS();
+  const a = svc.connectPhone(aWs);
+  await a.feed({ type: 'register', phoneId: 'pa', name: 'A' });
+
+  // Before preview: assigning does NOT command publish.
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  assert.equal(aWs.typed('command').length, 0);
+
+  // Start preview: pa (already assigned) is told to publish, and the flag sticks.
+  await op.feed({ type: 'startPreview' });
+  assert.equal(svc.state.previewing, true);
+  assert.deepEqual(aWs.last('command'), { type: 'command', action: 'publish', slot: 'cam1' });
+
+  // A phone assigned AFTER preview started auto-publishes — no second Start Preview.
+  const bWs = new FakeWS();
+  const b = svc.connectPhone(bWs);
+  await b.feed({ type: 'register', phoneId: 'pb', name: 'B' });
+  await op.feed({ type: 'assign', phoneId: 'pb', slot: 'cam2' });
+  assert.deepEqual(bWs.last('command'), { type: 'command', action: 'publish', slot: 'cam2' });
+
+  // Reassigning cam1 from pa to a third phone: the new holder publishes; pa is
+  // told it's unassigned (the phone self-stops on assigned:null).
+  const cWs = new FakeWS();
+  const c = svc.connectPhone(cWs);
+  await c.feed({ type: 'register', phoneId: 'pc', name: 'C' });
+  await op.feed({ type: 'assign', phoneId: 'pc', slot: 'cam1' });
+  assert.deepEqual(cWs.last('command'), { type: 'command', action: 'publish', slot: 'cam1' });
+  assert.equal(aWs.last('assigned').slot, null);
+  assert.equal(svc.state.phones.get('pa').slot, null);
+
+  // Stop preview clears the flag and stops everyone.
+  await op.feed({ type: 'stopPreview' });
+  assert.equal(svc.state.previewing, false);
+  assert.deepEqual(bWs.last('command'), { type: 'command', action: 'stop' });
+});
+
+test('preview resumes on reconnect (not only during recording)', async () => {
+  const mtx = new StubMTX();
+  const svc = makeSvc(mtx);
+  const op = svc.connectOperator(new FakeWS());
+  const ws1 = new FakeWS();
+  const p1 = svc.connectPhone(ws1);
+  await p1.feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  await op.feed({ type: 'startPreview' });
+  await p1.disconnect();
+
+  const ws2 = new FakeWS();
+  const p2 = svc.connectPhone(ws2);
+  await p2.feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  assert.equal(ws2.last('assigned').slot, 'cam1');
+  assert.deepEqual(ws2.last('command'), { type: 'command', action: 'publish', slot: 'cam1' });
+});
+
+test('switch only logs cameras in the recording set', async () => {
+  const mtx = new StubMTX({ cam1: true });          // only cam1 is live at Record
+  const svc = makeSvc(mtx);
+  const op = svc.connectOperator(new FakeWS());
+  const ph = svc.connectPhone(new FakeWS());
+  await ph.feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  await op.feed({ type: 'startRecording' });
+  assert.deepEqual(Object.keys(svc.state.cameraRecordStarted), ['cam1']);
+
+  await op.feed({ type: 'switch', camId: 'cam3' });  // real camera, but not recording -> ignored
+  await op.feed({ type: 'switch', camId: 'cam2' });  // not recording -> ignored
+  assert.equal(svc.state.switches.length, 0);
+  await op.feed({ type: 'switch', camId: 'cam1' });  // recording -> logged
+  assert.equal(svc.state.switches.length, 1);
+  assert.equal(svc.state.switches[0].camId, 'cam1');
+});
+
+test('snapshot includes the previewing flag', async () => {
+  const mtx = new StubMTX();
+  const svc = makeSvc(mtx);
+  assert.equal(svc.state.snapshot().previewing, false);
+  const op = svc.connectOperator(new FakeWS());
+  await op.feed({ type: 'startPreview' });
+  assert.equal(svc.state.snapshot().previewing, true);
+});
+
 test('recordings download rejects path traversal', () => {
   // Valid single segments that don't exist still return null (no file), but the
   // point here is that traversal / separators are rejected outright.

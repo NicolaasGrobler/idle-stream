@@ -151,7 +151,7 @@ export function createService(mtx, opts = {}) {
         wsSend(ws, { type: 'registered', phoneId, recording: state.recording });
         if (p.slot) {                            // restore the armed state on the phone
           wsSend(ws, assignedMsg(p.slot));
-          if (state.recording) {                 // rejoin an in-progress recording
+          if (state.recording || state.previewing) {   // rejoin an in-progress preview/recording
             wsSend(ws, { type: 'command', action: 'publish', slot: p.slot });
           }
         }
@@ -245,6 +245,12 @@ export function createService(mtx, opts = {}) {
         }
         state.phones.get(pid).slot = slot;
         sendPhone(pid, assignedMsg(slot));
+        // If preview/recording is live, the newly-assigned phone should start
+        // publishing immediately — without the operator re-pressing Start Preview.
+        // (The evicted prior holder self-stops on its assigned:null above.)
+        if (state.previewing || state.recording) {
+          sendPhone(pid, { type: 'command', action: 'publish', slot });
+        }
         broadcastState();
       }
     } else if (t === 'unassign') {
@@ -267,18 +273,22 @@ export function createService(mtx, opts = {}) {
     // ---- preview / record ----
     } else if (t === 'startPreview') {
       const scope = msg.phoneId ?? null;
+      state.previewing = true;                    // persists, so later assignments auto-publish
       for (const p of state.phones.values()) {
         if (p.slot && (scope === null || p.id === scope)) {
           sendPhone(p.id, { type: 'command', action: 'publish', slot: p.slot });
         }
       }
+      broadcastState();
     } else if (t === 'stopPreview') {
       const scope = msg.phoneId ?? null;
+      if (scope === null) state.previewing = false;
       for (const p of state.phones.values()) {
         if (scope === null || p.id === scope) {
           sendPhone(p.id, { type: 'command', action: 'stop' });
         }
       }
+      broadcastState();
     } else if (t === 'startRecording') {
       if (state.recording) return;                // already recording — don't reset the session
       const ready = await mtx.readyPaths();
@@ -301,7 +311,9 @@ export function createService(mtx, opts = {}) {
       broadcastState();
     } else if (t === 'switch') {
       const cam = msg.camId;
-      if (state.recording && state.cameraIds().includes(cam)) {
+      // Only a camera actually being recorded this session can be taken — taking
+      // a camera with no footage would put a useless cut point in the log.
+      if (state.recording && Object.prototype.hasOwnProperty.call(state.cameraRecordStarted, cam)) {
         // ignore a repeat take of the camera already on program — keeps the log clean
         const last = state.switches[state.switches.length - 1];
         if (!last || last.camId !== cam) {

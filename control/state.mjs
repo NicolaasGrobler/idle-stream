@@ -24,6 +24,7 @@ export class SessionState {
   constructor() {
     this.cameras = [];                 // Camera[]
     this.phones = new Map();           // id -> Phone
+    this.previewing = false;           // operator has started preview; new assignments auto-publish
     this.recording = false;
     this.recordingStartedAt = null;
     this.sessionId = null;
@@ -68,6 +69,7 @@ export class SessionState {
         battery: p.battery,
       })),
       slots: Object.fromEntries(this.cameras.map((c) => [c.id, this.slotOwner(c.id)])),
+      previewing: this.previewing,
       recording: this.recording,
       recordingStartedAt: this.recordingStartedAt,
       sessionId: this.sessionId,
