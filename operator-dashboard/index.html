@@ -116,8 +116,8 @@
     .clip-file { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .clip-size { color: #9aa0a6; font-size: 12px; flex: none; font-variant-numeric: tabular-nums; }
     .clip-dl { text-decoration: none; flex: none; }
-    .clip-del { flex: none; }
-    .clip-del:hover { border-color: #dc2626; color: #f87171; }
+    .clip-del, .sess-del { flex: none; }
+    .clip-del:hover, .sess-del:hover { border-color: #dc2626; color: #f87171; }
     /* Pre-flight checklist */
     .pf-verdict { display: inline-block; margin-bottom: 10px; font-size: 14px; }
     .pf-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #1c1c1c; }
@@ -408,7 +408,8 @@
           <div class="sc-title">${escapeHtml(sessionTitle(s))}</div>
           <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'}</div>
           <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
-        </div><button class="go sess-preview" data-idx="${i}">▶ Preview</button></div>`;
+        </div><button class="go sess-preview" data-idx="${i}">▶ Preview</button>`
+        + `<button class="sm stop sess-del" data-sid="${escapeHtml(s.sessionId || '')}" title="Delete session">🗑</button></div>`;
       }).reverse().join('');
       return html;
     }
@@ -472,6 +473,8 @@
           body.innerHTML = renderSessionsTab(data.sess, data.recCams);
           body.querySelectorAll('.sess-preview').forEach((b) =>
             b.addEventListener('click', () => openSessionPreview(data.sess[Number(b.dataset.idx)], data.recCams)));
+          body.querySelectorAll('.sess-del').forEach((b) =>
+            b.addEventListener('click', () => deleteSession(b.dataset.sid, load)));
         } else {
           body.innerHTML = renderClipsTab(data.recCams, clipCam);
           body.querySelectorAll('.clip-subtab').forEach((b) =>
@@ -508,6 +511,22 @@
       if (!ok) return;
       try {
         const res = await fetch(`/api/recordings/download?cam=${encodeURIComponent(cam)}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (reload) reload();
+      } catch (e) {
+        showModal({ title: 'Delete failed', message: e.message, confirmLabel: 'OK' });
+      }
+    }
+
+    // Delete one session (switch-log entry) after a confirmation; clips are kept.
+    async function deleteSession(sid, reload) {
+      if (!sid) return;
+      const ok = await showModal({ title: 'Delete session',
+        message: 'Remove this session from the switch log? The recorded clips are kept — delete those from the Clips tab.',
+        confirmLabel: 'Delete', danger: true });
+      if (!ok) return;
+      try {
+        const res = await fetch(`/api/sessions?id=${encodeURIComponent(sid)}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         if (reload) reload();
       } catch (e) {

@@ -6,12 +6,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { createService } from '../index.mjs';
 import { resolveRecording, deleteRecording } from '../recordings.mjs';
+import { deleteSession, loadSessions } from '../switches.mjs';
 
 // A WebSocket-like double: captures everything the service sends, and emits
 // 'close' when the service closes it (so a stale-socket takeover is exercised).
@@ -552,6 +553,20 @@ test('recordings download rejects path traversal', () => {
   assert.equal(resolveRecording('cam1', ''), null);
   // A clean pair that simply doesn't exist on disk also yields null (not a throw).
   assert.equal(resolveRecording('cam1', 'nonexistent-file.mp4'), null);
+});
+
+test('deleteSession removes one session by id (clips untouched)', () => {
+  const store = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'switches.json');
+  const had = existsSync(store) ? readFileSync(store, 'utf-8') : null;   // save real state
+  try {
+    writeFileSync(store, JSON.stringify([{ sessionId: 'aaa' }, { sessionId: 'bbb' }, { sessionId: 'ccc' }]));
+    assert.equal(deleteSession('zzz'), false);                  // no match
+    assert.equal(deleteSession('bbb'), true);                   // removed
+    assert.deepEqual(loadSessions().map((s) => s.sessionId), ['aaa', 'ccc']);
+    assert.equal(deleteSession('bbb'), false);                  // already gone
+  } finally {
+    if (had === null) rmSync(store, { force: true }); else writeFileSync(store, had);
+  }
 });
 
 test('deleteRecording removes a real file and rejects traversal / misses', () => {

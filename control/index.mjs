@@ -494,6 +494,12 @@ function handleHttp(svc, req, res) {
     sendJson(res, 200, switchesStore.loadSessions());
     return;
   }
+  if (req.method === 'DELETE' && path === '/api/sessions') {
+    const id = url.searchParams.get('id') ?? '';
+    const ok = switchesStore.deleteSession(id);
+    sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
+    return;
+  }
   if (req.method === 'GET' && path === '/api/preflight') {
     sendJson(res, 200, recordingsStore.preflight());
     return;

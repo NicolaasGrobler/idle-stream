@@ -35,3 +35,14 @@ export function appendSession(session) {
   data.push(session);
   writeFileSync(STORE, JSON.stringify(data, null, 2), 'utf-8');
 }
+
+// Remove one session by id. Returns true if a session was removed. The
+// recorded clip files are not touched (delete those via the recordings API).
+export function deleteSession(sessionId) {
+  const sessions = loadSessions();
+  const next = sessions.filter((s) => s.sessionId !== sessionId);
+  if (next.length === sessions.length) return false;
+  mkdirSync(dirname(STORE), { recursive: true });
+  writeFileSync(STORE, JSON.stringify(next, null, 2), 'utf-8');
+  return true;
+}
