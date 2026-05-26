@@ -79,7 +79,9 @@ Firewall rules needed on the LAN: **8443/tcp**, **8444/tcp** (if operator is rem
    - **iOS:** install profile, **then** Settings ▸ General ▸ About ▸ Certificate Trust Settings → enable full trust (both steps).
    - **Android:** Settings ▸ Security ▸ Install a certificate ▸ CA certificate.
 
-Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity ≤ 825 days — mkcert satisfies these. Avoid `.local` (unreliable on iOS); use the IP. For the church router, re-run `make-certs.ps1` with that network's IP and update `webrtcAdditionalHosts` in `mediamtx/mediamtx.yml`.
+Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity ≤ 825 days — mkcert satisfies these. Avoid `.local` (unreliable on iOS); use the IP.
+
+**Switching networks is automatic.** The LAN IP is auto-detected (shared helper `setup/lan-ip.ps1`; override with `-Ip`). `make-certs.ps1` records the IP it issued for to `certs/.lan-ip`; on each `dev-up.ps1` the IP is re-checked and the leaf cert is **re-issued automatically if it changed** (the mkcert root CA is unchanged, so phones stay trusted — no re-install, no re-distributing `rootCA.pem`). MediaMTX's advertised WebRTC host is injected the same way. So moving from a test network to a venue needs no hand-editing — just run `dev-up.ps1` there.
 
 ## Components
 
@@ -91,7 +93,7 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 ### MediaMTX (`mediamtx/mediamtx.yml`)
 - WebRTC on `127.0.0.1:8889` (no TLS — the proxy terminates it), media on UDP `:8189`, API on `127.0.0.1:9997`. RTSP/RTMP/HLS/SRT disabled.
 - `record: no` default (operator-controlled), copy-only fMP4 to `recordings/<path>/...`, `recordDeleteAfter: 0` (never auto-delete). **No camera paths declared** — the control service manages them.
-- `webrtcAdditionalHosts` pins the LAN IP for clean ICE.
+- The committed config is **network-agnostic** (`webrtcIPsFromInterfaces: yes` gathers every interface IP as an ICE candidate, including the LAN one; `webrtcAdditionalHosts: []`). `dev-up.ps1` renders `mediamtx.gen.yml` with the detected LAN IP injected and launches from that — nothing per-network is committed.
 
 ### Control service (`control/`)
 FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
@@ -119,7 +121,7 @@ FastAPI on `:9000`, two WebSocket endpoints proxied same-origin:
 
 ```
 idle-stream/
-├── mediamtx/mediamtx.yml         # MediaMTX config (no paths; control service adds them)
+├── mediamtx/mediamtx.yml         # MediaMTX config template (no paths, no LAN IP); dev-up renders mediamtx.gen.yml
 ├── control/
 │   ├── app/{main,state,mediamtx,cameras,switches}.py
 │   ├── requirements.txt
@@ -129,7 +131,7 @@ idle-stream/
 ├── milestone0/                   # standalone getUserMedia diagnostic (keep for new-device cert checks)
 ├── milestone1/                   # standalone publisher (superseded by phone-pwa; kept as a no-orchestration test)
 ├── dev-server.mjs                # TLS static server + WHIP/WHEP/WS reverse proxy
-├── setup/{fetch-tools,make-certs}.ps1
+├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # lan-ip.ps1: shared LAN IP detection
 ├── scripts/{dev-up,dev-down}.ps1 # start/stop the whole stack
 ├── tools/                        # mkcert.exe, mediamtx.exe (gitignored; fetch-tools re-downloads)
 ├── certs/  data/  recordings/  logs/   # all gitignored
@@ -165,7 +167,7 @@ python -m venv control\.venv; control\.venv\Scripts\pip install -r control\requi
 ### Known limitations
 - A phone that drops its WebSocket reconnects as a **new** entry and loses its slot assignment (needs a persistent phone id).
 - Recording state doesn't auto-clear if every phone drops — the operator clicks Stop Recording.
-- `mediamtx.yml` pins a single LAN IP (`webrtcAdditionalHosts`) — update per network.
+- Setup scripts are **Windows/PowerShell only** (`.ps1`); the runtime (Node dev-server, MediaMTX, mkcert) is cross-platform but macOS/Linux launch scripts don't exist yet.
 
 ## Future: Live Streaming (not v1)
 

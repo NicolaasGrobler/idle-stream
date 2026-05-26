@@ -25,13 +25,17 @@ webrtcAddress: 127.0.0.1:8889
 webrtcEncryption: no
 webrtcAllowOrigins: ['*']
 webrtcLocalUDPAddress: :8189
-# Gather all interface IPs as ICE candidates and also advertise the LAN IP.
-# This laptop is multi-homed (Ethernet, Tailscale, VPN, Hyper-V); offering every
-# candidate lets each phone pick whatever path actually reaches it — ICE runs
-# connectivity checks and uses the one that works. The church's single-router
-# network won't have this ambiguity; there, pin the router IP and turn this off.
+# Gather every interface IP as an ICE candidate — including the LAN IP — so each
+# phone picks whatever path actually reaches it (ICE runs connectivity checks and
+# uses the one that works). This handles multi-homed machines (Ethernet, Tailscale,
+# VPN, Hyper-V) with zero per-network config.
+#
+# webrtcAdditionalHosts is for addresses NOT bound to a local interface (a public
+# IP behind NAT, a DNS name). On a plain LAN it's redundant, so it ships empty.
+# dev-up.ps1 injects the detected LAN IP here at startup (into mediamtx.gen.yml)
+# as belt-and-suspenders; this committed file stays network-agnostic.
 webrtcIPsFromInterfaces: yes
-webrtcAdditionalHosts: [192.168.0.52]
+webrtcAdditionalHosts: []
 
 pathDefaults:
   # Recording is OFF by default and toggled at runtime by the control service

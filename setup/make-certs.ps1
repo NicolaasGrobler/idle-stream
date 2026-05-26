@@ -34,27 +34,9 @@ if (Test-Path $localMkcert) {
     exit 1
 }
 
-# 2. Auto-detect a LAN IP if none was supplied (prefer 192.168.x, then 10.x)
-if (-not $Ip) {
-    $candidates = @(
-        Get-NetIPAddress -AddressFamily IPv4 |
-            Where-Object {
-                $_.IPAddress -match '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' -and
-                $_.InterfaceAlias -notmatch 'vEthernet|Loopback'
-            } |
-            Select-Object -ExpandProperty IPAddress
-    )
-    $candidates = @($candidates | Sort-Object {
-        if ($_ -like '192.168.*') { 0 } elseif ($_ -like '10.*') { 1 } else { 2 }
-    })
-    if ($candidates.Count -eq 0) { throw "Could not auto-detect a LAN IP. Re-run with -Ip <addr>." }
-    if ($candidates.Count -gt 1) {
-        Write-Host "Multiple LAN IPs found:" -ForegroundColor Yellow
-        $candidates | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
-        Write-Host "Using the first. Re-run with -Ip <addr> to pick another." -ForegroundColor Yellow
-    }
-    $Ip = $candidates[0]
-}
+# 2. Resolve the LAN IP (shared with dev-up.ps1 so the two never drift).
+. (Join-Path $PSScriptRoot 'lan-ip.ps1')
+$Ip = Get-LanIP -Ip $Ip
 
 Write-Host "Binding certificate to LAN IP: $Ip" -ForegroundColor Cyan
 
@@ -74,6 +56,10 @@ try {
 # 5. Copy the root CA for phone distribution
 $caRoot = (& $mkcert -CAROOT).Trim()
 Copy-Item -Path (Join-Path $caRoot 'rootCA.pem') -Destination (Join-Path $OutDir 'rootCA.pem') -Force
+
+# 6. Record which IP this cert was issued for so dev-up.ps1 can detect a
+#    network change and re-issue the leaf automatically.
+Set-Content -Path (Join-Path $OutDir '.lan-ip') -Value $Ip -Encoding ascii -NoNewline
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green

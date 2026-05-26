@@ -15,6 +15,12 @@ logs/
 # Operator's persisted camera config (environment-specific)
 data/
 
+# Generated MediaMTX config (rendered per-network by dev-up.ps1)
+mediamtx/mediamtx.gen.yml
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
 # Node
 node_modules/
 dist/
