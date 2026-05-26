@@ -1,4 +1,4 @@
-# Church Sermon Multi-Cam Recording System
+# Wireless Multicam Studio
 
 A local-network recording studio. Phones act as wireless cameras streaming over WebRTC (WHIP) to a server that records each angle losslessly. An operator dashboard coordinates the phones (assign cameras, arm → preview → record) and shows all feeds live. The final edit is cut in post from the clean per-angle files.
 

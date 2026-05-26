@@ -1,6 +1,7 @@
-# MediaMTX config for the sermon studio.
-# Run from the project ROOT so the relative cert/recording paths resolve:
-#   tools\mediamtx.exe mediamtx\mediamtx.yml
+# MediaMTX config for Wireless Multicam Studio.
+# Network-agnostic template: dev-up.ps1 renders mediamtx.gen.yml from this
+# (injecting the detected LAN IP) and launches MediaMTX from the generated copy,
+# always from the project ROOT so the relative cert/recording paths resolve.
 
 logLevel: info
 logDestinations: [stdout]
@@ -44,7 +45,7 @@ pathDefaults:
   record: no
   recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   recordFormat: fmp4
-  recordSegmentDuration: 2h   # one file per service (sermons run ~45 min)
+  recordSegmentDuration: 2h   # one long segment per session (covers a full event without splitting)
   recordDeleteAfter: 0s       # never auto-delete (MediaMTX default 1d would erase recordings)
 
 # Camera paths are managed at runtime by the control service (from

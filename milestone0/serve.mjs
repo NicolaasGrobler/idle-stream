@@ -40,7 +40,7 @@ const server = createServer(options, (req, res) => {
     if (!existsSync(ca)) { res.writeHead(404); res.end('rootCA.pem not found'); return; }
     res.writeHead(200, {
       'content-type': 'application/x-x509-ca-cert',
-      'content-disposition': 'attachment; filename="sermon-studio-rootCA.pem"',
+      'content-disposition': 'attachment; filename="multicam-rootCA.pem"',
     });
     createReadStream(ca).pipe(res);
     return;

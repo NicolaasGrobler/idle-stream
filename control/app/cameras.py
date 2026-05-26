@@ -8,7 +8,7 @@ from pathlib import Path
 from .state import Camera
 
 STORE = Path(__file__).resolve().parents[2] / "data" / "cameras.json"
-DEFAULTS = [{"id": "cam1", "label": "Wide"}, {"id": "cam2", "label": "Pulpit"}, {"id": "cam3", "label": "Side"}]
+DEFAULTS = [{"id": "cam1", "label": "Wide"}, {"id": "cam2", "label": "Center"}, {"id": "cam3", "label": "Side"}]
 
 
 def load() -> list:
