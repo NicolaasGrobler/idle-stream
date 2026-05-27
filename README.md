@@ -64,12 +64,17 @@ npm run certs        # install a local CA + issue a LAN cert (auto-detects your 
 > they do the same thing.
 
 iOS Safari silently blocks the camera on an untrusted cert, so each phone has to
-trust the local CA **once**:
+trust the local CA **once**. Easiest: open **`https://<LAN-IP>:8443/setup.html`**
+on the phone — a guided page with a "Download certificate" button, the exact
+per-platform trust steps, and a QR code (display it on the laptop for other
+phones to scan). Or do it manually:
 
 1. On the phone, open `https://<LAN-IP>:8443/rootCA.pem` and install it.
 2. **iOS:** install the profile, then Settings ▸ General ▸ About ▸ Certificate
    Trust Settings → enable full trust (both steps required).
    **Android:** Settings ▸ Security ▸ Install a certificate ▸ CA certificate.
+
+(It's once per phone and survives WiFi changes — the CA stays the same.)
 
 ## Run
 

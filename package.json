@@ -29,6 +29,7 @@
     "innosetup-compiler": "^6.3.1",
     "png-to-ico": "^3.0.1",
     "postject": "^1.0.0-alpha.6",
+    "qrcode-generator": "^2.0.4",
     "resedit": "^3.0.2"
   }
 }

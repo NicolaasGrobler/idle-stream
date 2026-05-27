@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Set up this phone · Multicam</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #0a0a0a; color: #e8e8e8;
+      font: 16px/1.45 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 520px; margin: 0 auto; padding: 20px 18px 40px; }
+    h1 { font-size: 20px; margin: 6px 0 4px; }
+    .sub { color: #9aa0a6; font-size: 14px; margin: 0 0 18px; }
+    .card { background: #141414; border: 1px solid #242424; border-radius: 14px; padding: 16px; margin: 0 0 14px; }
+    .step { display: flex; gap: 12px; }
+    .num { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #16a34a; color: #fff;
+      font-weight: 800; display: flex; align-items: center; justify-content: center; }
+    .step h2 { font-size: 16px; margin: 2px 0 6px; }
+    .step p, .step li { color: #c8ccd0; font-size: 14px; }
+    ol, ul { margin: 6px 0 0; padding-left: 20px; }
+    a.btn { display: block; text-align: center; text-decoration: none; margin-top: 12px;
+      padding: 14px; border-radius: 11px; font-weight: 700; }
+    a.btn.green { background: #16a34a; color: #fff; }
+    a.btn.grey { background: #1d1d1d; color: #e8e8e8; border: 1px solid #333; }
+    .plat { display: none; }
+    .plat.show { display: block; }
+    kbd { background: #222; border: 1px solid #333; border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+    .qrbox { text-align: center; }
+    .qrbox img, .qrbox svg { width: 200px; height: 200px; background: #fff; border-radius: 10px; padding: 8px; }
+    .qrcap { color: #9aa0a6; font-size: 13px; margin-top: 8px; }
+    .why { color: #777; font-size: 13px; }
+    .tag { display: inline-block; background: #1a1a1a; color: #888; border-radius: 999px; padding: 2px 10px; font-size: 12px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <span class="tag" id="platTag">Phone setup</span>
+    <h1>Set up this phone</h1>
+    <p class="sub">One-time setup so this phone can stream its camera to the studio. Takes about a minute.</p>
+
+    <div class="card">
+      <div class="step">
+        <div class="num">1</div>
+        <div>
+          <h2>Install the studio certificate</h2>
+          <p>This lets the phone trust the local studio over HTTPS. Without it the camera is blocked.</p>
+          <a class="btn green" href="/rootCA.pem">Download certificate</a>
+
+          <div class="plat" id="ios">
+            <ol>
+              <li>Tap <b>Allow</b> when asked to download a configuration profile.</li>
+              <li>Open <kbd>Settings</kbd> — tap <b>Profile Downloaded</b> near the top, then <b>Install</b> (top-right), and enter your passcode.</li>
+              <li>Go to <kbd>Settings ▸ General ▸ About ▸ Certificate Trust Settings</kbd> and turn <b>ON</b> the "multicam" certificate. <i>(This second step is required — the camera stays blocked without it.)</i></li>
+            </ol>
+          </div>
+          <div class="plat" id="android">
+            <ol>
+              <li>When the file downloads, open it (or go to <kbd>Settings ▸ Security ▸ Install a certificate ▸ CA certificate</kbd>).</li>
+              <li>Confirm installing it ("Install anyway" if warned).</li>
+            </ol>
+          </div>
+          <div class="plat" id="other">
+            <p><b>iPhone:</b> install the downloaded profile, then <kbd>Settings ▸ General ▸ About ▸ Certificate Trust Settings</kbd> → enable it.<br>
+            <b>Android:</b> open the file or <kbd>Settings ▸ Security ▸ Install a certificate ▸ CA certificate</kbd>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="step">
+        <div class="num">2</div>
+        <div style="flex:1">
+          <h2>Open the camera</h2>
+          <p>Once the certificate is trusted, open the camera page, enter a name, and tap <b>Join</b>.</p>
+          <a class="btn grey" href="./">Open the camera</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card qrbox">
+      <div id="qr"></div>
+      <div class="qrcap">Point another phone's camera at this code to open this setup page on it.</div>
+    </div>
+
+    <p class="why">Why a certificate? The studio runs on your local network with no internet, so it uses a locally‑trusted certificate (mkcert) instead of a public one. You trust it once per phone; it keeps working even if the WiFi changes.</p>
+  </div>
+
+  <script src="vendor/qrcode.js"></script>
+  <script>
+    // Show the instructions for the detected platform.
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var isAndroid = /Android/.test(ua);
+    var which = isIOS ? 'ios' : isAndroid ? 'android' : 'other';
+    document.getElementById(which).classList.add('show');
+    document.getElementById('platTag').textContent = isIOS ? 'iPhone / iPad setup' : isAndroid ? 'Android setup' : 'Phone setup';
+
+    // QR of this phone-server's root URL, so another phone can scan to land here.
+    try {
+      var qr = qrcode(0, 'M');
+      qr.addData(location.origin + '/setup.html');
+      qr.make();
+      document.getElementById('qr').innerHTML = qr.createImgTag(5, 8);
+    } catch (e) {
+      document.getElementById('qr').textContent = location.origin + '/';
+    }
+  </script>
+</body>
+</html>

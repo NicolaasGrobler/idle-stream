@@ -86,6 +86,7 @@ Cert constraints (iOS 13+): hostname/IP in a SAN, SHA-2, RSA ≥ 2048, validity 
 ## Components
 
 ### Phone PWA (`phone-pwa/`)
+- **Onboarding page** (`setup.html`, linked from the camera landing): a one-time, platform-aware setup screen — a "Download certificate" button (serves `/rootCA.pem`) with the exact iOS vs Android trust steps, an "Open the camera" link, and a **QR code** of the phone URL (generated offline via the vendored `vendor/qrcode.js`) so the operator can display this page and other phones scan to land on it. This makes the unavoidable per-phone CA-trust step tap-through instead of hand-typed instructions.
 - Landing: phone name + camera (front/back) → **Join** (one gesture acquires the camera, requests wake lock, connects the control WebSocket, registers).
 - Then **armed**: shows the assigned camera's label and waits. Publishes via **WHIP only on the operator's command**, forcing H.264 and an 8 Mbps target bitrate at 1080p30. Shows live/standby, bitrate, and a REC badge mirroring session state.
 - **Persistent identity** (`localStorage` id sent on register) so a WebSocket reconnect re-attaches to the same record and keeps the slot. WebSocket auto-reconnect with backoff; on reconnect the server restores the assignment and (if recording) re-issues the publish command.
