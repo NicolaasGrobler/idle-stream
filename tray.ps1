@@ -1,4 +1,4 @@
-# Wireless Multicam Studio — system-tray launcher (Windows).
+# Wireless Multicam Studio - system-tray launcher (Windows).
 #
 # Launched HIDDEN by the installed shortcut:
 #   powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File tray.ps1
@@ -8,7 +8,7 @@
 #
 # Keep the default 'Continue' error action: multicam writes informational notices
 # (e.g. "Multiple LAN IPs found") to stderr, and under 'Stop' PowerShell 5.1 turns
-# native stderr into a TERMINATING error — which would abort startup. Native
+# native stderr into a TERMINATING error - which would abort startup. Native
 # command stderr is also redirected to $null at each call site below.
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
@@ -49,7 +49,7 @@ function Start-Stack {
   & $Exe up 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) {
     $script:running = $true
-    $notify.Text = "Wireless Multicam Studio — running`n$script:operatorUrl"
+    $notify.Text = "Wireless Multicam Studio - running`n$script:operatorUrl"
     Balloon 'Wireless Multicam Studio' "Running.`nOperator: $script:operatorUrl`nRight-click the tray icon for options."
   } else {
     $script:running = $false
