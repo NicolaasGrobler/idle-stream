@@ -175,6 +175,20 @@
     .player-tip .pt-spin { position: absolute; left: 4px; top: 4px; width: 160px; height: 90px; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); border-radius: 4px; }
     .player-tip .pt-spin.on { display: flex; }
     .player-tip .pt-spin::after { content: ''; width: 26px; height: 26px; border: 3px solid rgba(255,255,255,0.25); border-top-color: #16a34a; border-radius: 50%; animation: pl-spin 0.8s linear infinite; }
+    /* Per-section audio editor (mic routing in the preview) */
+    .player-audio { margin-top: 12px; border-top: 1px solid #222; padding-top: 10px; }
+    .pa-head { font-size: 12px; color: #888; margin-bottom: 8px; }
+    .pa-head .pa-hint { color: #666; }
+    .pa-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pa-chip { font-size: 12px; padding: 4px 9px; border-radius: 6px; border: 1px solid #333; background: #141414; color: #ccc; cursor: pointer; font-variant-numeric: tabular-nums; }
+    .pa-chip.sel { border-color: #4ade80; color: #eaffef; }
+    .pa-chip.routed { background: #10241a; border-color: #1d5236; }
+    .pa-editor { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; background: #111; border: 1px solid #242424; border-radius: 8px; padding: 10px 12px; }
+    .pa-editor label { font-size: 12px; color: #bbb; display: flex; align-items: center; gap: 6px; }
+    .pa-editor input[type=range] { accent-color: #16a34a; width: 90px; }
+    .pa-mode { display: flex; gap: 0; border: 1px solid #333; border-radius: 7px; overflow: hidden; }
+    .pa-mode button { font: inherit; font-size: 12px; padding: 5px 10px; border: none; background: #141414; color: #aaa; cursor: pointer; }
+    .pa-mode button.on { background: #16a34a; color: #fff; }
     /* Switch log */
     #switchlogList { max-height: 240px; overflow: auto; }
     .swrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
@@ -876,10 +890,13 @@
         const name = fileForCam(recCams, c.id, session);
         cams[c.id] = {
           label: c.label || c.id,
+          kind: c.kind === 'audio' ? 'audio' : 'video',
+          link: c.link || null,
           delay: (c.recordStartedAt || start) - start,
           url: name ? `/api/recordings/download?cam=${encodeURIComponent(c.id)}&name=${encodeURIComponent(name)}` : null,
         };
       }
+      const audioCams = Object.entries(cams).filter(([, c]) => c.kind === 'audio' && c.url).map(([id, c]) => ({ id, label: c.label }));
 
       // Program segments from the ordered takes.
       const sw = (session.switches || []).slice().sort((a, b) => a.offset - b.offset);
@@ -894,6 +911,7 @@
         }
       }
       const segAt = (t) => segs.find((s) => t >= s.start && t < s.end) || segs[segs.length - 1] || { camId: null };
+      const segIndexAt = (t) => { for (let i = 0; i < segs.length; i++) if (t >= segs[i].start && t < segs[i].end) return i; return Math.max(0, segs.length - 1); };
       // A camera taken but never recorded (e.g. an old session) isn't in cams[],
       // but the take itself carries its label.
       const labelFor = (id) => (cams[id] && cams[id].label) || (sw.find((s) => s.camId === id) || {}).label || id;
@@ -910,7 +928,9 @@
           <span class="player-time">00:00 / ${fmtOffset(dur)}</span>
           <div class="player-bar"><div class="player-fill"></div>
             <div class="player-tip"><canvas width="160" height="90"></canvas><div class="pt-spin"></div><div class="pt-gap"></div><span class="pt-time"></span></div></div>
-        </div></div>`;
+        </div>
+        <div class="player-audio hidden"><div class="pa-head">Section audio <span class="pa-hint">— click a section to route a mic</span></div><div class="pa-chips"></div><div class="pa-editor hidden"></div></div>
+        </div>`;
       document.body.appendChild(overlay);
       const stage = overlay.querySelector('.player-stage');
       const black = overlay.querySelector('.player-black');
@@ -950,9 +970,17 @@
 
       const vids = {};
       const thumbVids = {};   // hidden per-clip videos seeked for hover thumbnails
+      const micEls = {};      // hidden <audio> per audio source, played + level-set during preview
       const LOAD_EVENTS = ['loadstart', 'waiting', 'seeking', 'stalled', 'emptied', 'loadeddata', 'canplay', 'canplaythrough', 'seeked', 'playing', 'progress'];
       for (const [id, c] of Object.entries(cams)) {
         if (!c.url) continue;
+        if (c.kind === 'audio') {                  // mic source: a synced <audio>, not a video angle
+          const a = document.createElement('audio');
+          a.preload = 'auto'; a.src = c.url; a.style.display = 'none';
+          stage.appendChild(a);
+          micEls[id] = a;
+          continue;
+        }
         const v = document.createElement('video');
         v.playsInline = true; v.preload = 'auto'; v.muted = true; v.src = c.url;
         stage.insertBefore(v, black);
@@ -1018,6 +1046,7 @@
           black.textContent = blackTextFor(t);
         }
         refreshStageLoading();
+        applyAudio();
       }
       function ui() { fill.style.width = `${(100 * Math.min(sessionTime, dur)) / (dur || 1)}%`; timeEl.textContent = `${fmtOffset(sessionTime)} / ${fmtOffset(dur)}`; }
 
@@ -1039,7 +1068,7 @@
         if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} vids[activeId].play().catch(() => {}); }
         lastMs = performance.now(); raf = requestAnimationFrame(tick);
       }
-      function pause() { playing = false; playBtn.textContent = '▶ Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); refreshStageLoading(); }
+      function pause() { playing = false; playBtn.textContent = '▶ Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); for (const el of Object.values(micEls)) el.pause(); refreshStageLoading(); }
       function seekTo(t) {
         sessionTime = Math.max(0, Math.min(dur, t)); activeId = undefined; setActiveFor(sessionTime); ui();
         // Seek the active clip's frame even when paused, so scrubbing shows the
@@ -1116,10 +1145,92 @@
       });
       bar.addEventListener('mouseleave', () => { tip.style.display = 'none'; hoverId = null; hideThumbSpin(); });
 
+      // ----- Per-section audio routing (mic mix/replace + volumes), live -----
+      // Edited by clicking a section chip; plays the routed mic synced via a hidden
+      // <audio> and sets the camera-video volume. Persisted to the session so the
+      // export renders the same routing. Element volumes cap at 1.0 (0–100%).
+      const audioBox = overlay.querySelector('.player-audio');
+      const chipsBox = overlay.querySelector('.pa-chips');
+      const editorBox = overlay.querySelector('.pa-editor');
+      const audioRouting = Object.assign({}, session.audioRouting || {});
+      const linkedMicFor = (camId) => (audioCams.find((m) => cams[m.id] && cams[m.id].link === camId) || {}).id || null;
+      function effRouting(i) {
+        const r = audioRouting[i];
+        if (r) return { mic: r.mic || null, mode: r.mode === 'replace' ? 'replace' : 'mix', camVol: r.camVol == null ? 1 : r.camVol, micVol: r.micVol == null ? 1 : r.micVol };
+        const lm = linkedMicFor((segs[i] || {}).camId);
+        if (lm) return { mic: lm, mode: 'mix', camVol: 1, micVol: 1 };
+        return { mic: null, mode: 'mix', camVol: 1, micVol: 1 };
+      }
+      function applyAudio() {
+        const eff = effRouting(segIndexAt(sessionTime));
+        if (activeId && vids[activeId]) vids[activeId].volume = (eff.mic && eff.mode === 'replace') ? 0 : Math.min(1, eff.camVol);
+        for (const [mid, el] of Object.entries(micEls)) {
+          if (mid === eff.mic) {
+            el.volume = Math.min(1, eff.micVol);
+            const want = sessionTime - (cams[mid].delay || 0);
+            if (playing && want >= 0 && want < (isFinite(el.duration) ? el.duration : 1e9)) {
+              if (Math.abs((el.currentTime || 0) - want) > 0.3) { try { el.currentTime = Math.max(0, want); } catch {} }
+              el.play().catch(() => {});
+            } else if (!el.paused) el.pause();
+          } else if (!el.paused) el.pause();
+        }
+      }
+      let saveTimer = 0;
+      const scheduleSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => {
+        fetch(`/api/sessions/audio?id=${encodeURIComponent(session.sessionId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(audioRouting) }).catch(() => {});
+      }, 600); };
+      function setRoute(i, patch, rerender = true) {
+        const cur = effRouting(i);
+        audioRouting[i] = { mic: cur.mic, mode: cur.mode, camVol: cur.camVol, micVol: cur.micVol, ...patch };
+        applyAudio(); scheduleSave();
+        if (rerender) renderAudioEditor();
+      }
+      let selSeg = null;
+      function renderAudioEditor() {
+        if (!audioCams.length) { audioBox.classList.add('hidden'); return; }
+        audioBox.classList.remove('hidden');
+        chipsBox.innerHTML = '';
+        segs.forEach((seg, i) => {
+          const eff = effRouting(i);
+          const chip = document.createElement('button');
+          chip.className = 'pa-chip' + (i === selSeg ? ' sel' : '') + (eff.mic ? ' routed' : '');
+          chip.textContent = `${fmtOffset(seg.start)} ${seg.camId ? labelFor(seg.camId) : '(pre-roll)'}` + (eff.mic && cams[eff.mic] ? ` · 🎧${cams[eff.mic].label}` : '');
+          chip.addEventListener('click', () => { selSeg = (selSeg === i ? null : i); renderAudioEditor(); });
+          chipsBox.appendChild(chip);
+        });
+        if (selSeg == null) { editorBox.classList.add('hidden'); return; }
+        editorBox.classList.remove('hidden');
+        editorBox.innerHTML = '';
+        const eff = effRouting(selSeg);
+        const micWrap = document.createElement('label'); micWrap.append('Mic ');
+        const micDd = createDropdown({ value: eff.mic || '', compact: true,
+          opts: [{ value: '', label: 'None' }].concat(audioCams.map((m) => ({ value: m.id, label: m.label }))),
+          onChange: (v) => setRoute(selSeg, { mic: v || null }) });
+        micDd.el.style.width = '120px'; micWrap.appendChild(micDd.el); editorBox.appendChild(micWrap);
+        const mode = document.createElement('div'); mode.className = 'pa-mode';
+        mode.innerHTML = `<button data-m="mix" class="${eff.mode === 'mix' ? 'on' : ''}">Mix</button><button data-m="replace" class="${eff.mode === 'replace' ? 'on' : ''}">Replace</button>`;
+        mode.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => setRoute(selSeg, { mode: b.dataset.m })));
+        editorBox.appendChild(mode);
+        const slider = (lbl, key, val) => {
+          const l = document.createElement('label'); l.append(lbl + ' ');
+          const r = document.createElement('input'); r.type = 'range'; r.min = '0'; r.max = '1'; r.step = '0.05'; r.value = String(val);
+          const pct = document.createElement('span'); pct.style.width = '34px'; pct.textContent = Math.round(val * 100) + '%';
+          r.addEventListener('input', () => { pct.textContent = Math.round(r.value * 100) + '%'; setRoute(selSeg, { [key]: Number(r.value) }, false); });
+          l.append(r, pct); editorBox.appendChild(l);
+        };
+        slider('Camera', 'camVol', eff.camVol);
+        slider('Mic', 'micVol', eff.micVol);
+      }
+      renderAudioEditor();
+
       const close = () => {
         if (document.fullscreenElement === playerEl) document.exitFullscreen?.();
         document.removeEventListener('fullscreenchange', onFsChange);
-        pause(); for (const v of [...Object.values(vids), ...Object.values(thumbVids)]) { v.removeAttribute('src'); v.load(); } overlay.remove(); document.removeEventListener('keydown', onKey, true);
+        clearTimeout(saveTimer);
+        pause();
+        for (const v of [...Object.values(vids), ...Object.values(thumbVids)]) { v.removeAttribute('src'); v.load(); }
+        for (const el of Object.values(micEls)) { el.removeAttribute('src'); el.load(); }
+        overlay.remove(); document.removeEventListener('keydown', onKey, true);
       };
       const onKey = (e) => { if (e.key === 'Escape') close(); else if (e.key === ' ') { e.preventDefault(); playing ? pause() : play(); } };
       document.addEventListener('keydown', onKey, true);
