@@ -4,9 +4,11 @@
 // persisted to disk by cameras.mjs. A "slot" is a camera id (e.g. cam1) — the
 // MediaMTX path a phone publishes to.
 
-// A camera: { id (MediaMTX path, e.g. "cam1"), label (display name, e.g. "Wide") }.
-export function makeCamera(id, label) {
-  return { id, label };
+// A camera: { id (MediaMTX path, e.g. "cam1"), label (display name, e.g. "Wide"),
+//   bitrate (per-camera publish-bitrate override in bps, or null to use the
+//   operator's global setting) }.
+export function makeCamera(id, label, bitrate = null) {
+  return { id, label, bitrate: typeof bitrate === 'number' ? bitrate : null };
 }
 
 // A phone:
@@ -20,9 +22,14 @@ export function makePhone(id, name) {
   return { id, name, slot: null, publishing: false, connected: true, battery: null };
 }
 
+// Default global publish bitrate (bps); the operator can change it and override
+// it per camera. Kept here so state has a sane value before settings load.
+export const DEFAULT_BITRATE = 8_000_000;
+
 export class SessionState {
   constructor() {
     this.cameras = [];                 // Camera[]
+    this.globalBitrate = DEFAULT_BITRATE;   // operator-tunable default for every camera
     this.phones = new Map();           // id -> Phone
     this.previewing = false;           // operator has started preview; new assignments auto-publish
     this.recording = false;
@@ -51,6 +58,14 @@ export class SessionState {
     return null;
   }
 
+  // The publish bitrate a phone on this slot should use: the camera's own
+  // override if set, otherwise the global default.
+  effectiveBitrate(slot) {
+    const c = this.cameras.find((x) => x.id === slot);
+    if (c && typeof c.bitrate === 'number') return c.bitrate;
+    return this.globalBitrate;
+  }
+
   nextCameraId() {
     const existing = new Set(this.cameraIds());
     let n = 1;
@@ -60,7 +75,8 @@ export class SessionState {
 
   snapshot() {
     return {
-      cameras: this.cameras.map((c) => ({ id: c.id, label: c.label })),
+      cameras: this.cameras.map((c) => ({ id: c.id, label: c.label, bitrate: c.bitrate ?? null })),
+      globalBitrate: this.globalBitrate,
       phones: [...this.phones.values()].map((p) => ({
         id: p.id,
         name: p.name,

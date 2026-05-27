@@ -17,6 +17,7 @@ import * as switchesStore from './switches.mjs';
 import * as recordingsStore from './recordings.mjs';
 import * as assignmentsStore from './assignments.mjs';
 import * as exportsStore from './exports.mjs';
+import * as settingsStore from './settings.mjs';
 
 // Auto-stop a recording this many seconds after the last publisher drops (e.g.
 // the event ended). The grace window tolerates brief WiFi blips — a phone that
@@ -40,10 +41,14 @@ export function createService(mtx, opts = {}) {
   const loadCameras = opts.loadCameras ?? camerasStore.load;
   const saveAssignments = opts.saveAssignments ?? assignmentsStore.save;
   const loadAssignments = opts.loadAssignments ?? assignmentsStore.load;
+  const saveSettings = opts.saveSettings ?? settingsStore.save;
+  const loadSettings = opts.loadSettings ?? settingsStore.load;
+  const clampBitrate = settingsStore.clampBitrate;
   // {phoneId: {name, slot}} mirror, persisted so a restart restores assignments.
   const assignments = loadAssignments();
 
   const state = new SessionState();
+  state.globalBitrate = loadSettings().globalBitrate;   // operator-tunable default
   const operators = new Set();
   const phoneSockets = new Map();
   let emptySince = null;
@@ -74,6 +79,21 @@ export function createService(mtx, opts = {}) {
 
   function assignedMsg(slot) {
     return { type: 'assigned', slot, label: slot ? state.labelFor(slot) : null };
+  }
+
+  // The publish command carries the effective bitrate so the phone applies it on
+  // connect (no separate round-trip needed for the common case).
+  function publishCmd(slot) {
+    return { type: 'command', action: 'publish', slot, bitrate: state.effectiveBitrate(slot) };
+  }
+
+  // Push the current effective bitrate to every assigned phone (used after a
+  // global or per-camera change so phones adjust mid-session without a
+  // renegotiation). The phone applies it live via setParameters.
+  function broadcastBitrates() {
+    for (const p of state.phones.values()) {
+      if (p.slot) sendPhone(p.id, { type: 'bitrate', bitrate: state.effectiveBitrate(p.slot) });
+    }
   }
 
   function persistCameras() {
@@ -176,7 +196,7 @@ export function createService(mtx, opts = {}) {
         if (p.slot) {                            // restore the armed state on the phone
           wsSend(ws, assignedMsg(p.slot));
           if (state.recording || state.previewing) {   // rejoin an in-progress preview/recording
-            wsSend(ws, { type: 'command', action: 'publish', slot: p.slot });
+            wsSend(ws, publishCmd(p.slot));
           }
         }
         broadcastState();
@@ -257,6 +277,26 @@ export function createService(mtx, opts = {}) {
         broadcastState();
       }
 
+    // ---- bitrate settings ----
+    } else if (t === 'setGlobalBitrate') {
+      const b = clampBitrate(msg.bitrate);
+      if (b !== null) {
+        state.globalBitrate = b;
+        saveSettings({ globalBitrate: b });
+        broadcastBitrates();           // phones on a camera without an override adjust live
+        broadcastState();
+      }
+    } else if (t === 'setCameraBitrate') {
+      const cam = state.cameras.find((c) => c.id === msg.id);
+      if (cam) {
+        // null / missing clears the override (revert to global); else clamp.
+        cam.bitrate = msg.bitrate === null || msg.bitrate === undefined ? null : clampBitrate(msg.bitrate);
+        persistCameras();
+        const owner = state.slotOwner(cam.id);
+        if (owner) sendPhone(owner, { type: 'bitrate', bitrate: state.effectiveBitrate(cam.id) });
+        broadcastState();
+      }
+
     // ---- slot assignment ----
     } else if (t === 'assign') {
       const pid = msg.phoneId;
@@ -274,7 +314,7 @@ export function createService(mtx, opts = {}) {
         // publishing immediately — without the operator re-pressing Start Preview.
         // (The evicted prior holder self-stops on its assigned:null above.)
         if (state.previewing || state.recording) {
-          sendPhone(pid, { type: 'command', action: 'publish', slot });
+          sendPhone(pid, publishCmd(slot));
         }
         persistAssignments();
         broadcastState();
@@ -305,7 +345,7 @@ export function createService(mtx, opts = {}) {
       state.previewing = true;                    // persists, so later assignments auto-publish
       for (const p of state.phones.values()) {
         if (p.slot && (scope === null || p.id === scope)) {
-          sendPhone(p.id, { type: 'command', action: 'publish', slot: p.slot });
+          sendPhone(p.id, publishCmd(p.slot));
         }
       }
       broadcastState();

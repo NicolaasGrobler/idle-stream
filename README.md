@@ -149,7 +149,9 @@ unverified.)
 2. **On the dashboard:** add/rename cameras as needed, then assign each phone to a
    camera slot (one phone per slot).
 3. **Start Preview** — assigned phones begin streaming (not recording yet). Frame
-   and check every angle in the live grid.
+   and check every angle in the live grid. The header **Bitrate** selector sets the
+   global publish quality (4–12 Mbps); each camera can override it in the Cameras
+   panel. Changes apply live — phones adjust mid-session with no reconnect.
 4. **Pre-flight** (header button, optional) — confirm every camera is live, H.264,
    and has audio, and that the disk is writable, before you commit.
 5. **Record** — every live camera starts recording together, copy-only, with a

@@ -24,8 +24,9 @@
     .layout { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
     /* Custom dropdown (replaces native <select>) */
     .dd { position: relative; }
-    .dd-btn { width: 100%; font: inherit; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    .dd-btn { width: 100%; font: inherit; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px; white-space: nowrap;
       padding: 8px 10px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; cursor: pointer; }
+    .dd-label { overflow: hidden; text-overflow: ellipsis; }
     .dd-caret { flex: none; color: #888; transition: transform 0.15s ease; }
     .dd.open .dd-caret { transform: rotate(180deg); }
     .dd.open .dd-btn { border-color: #4ade80; }
@@ -44,7 +45,7 @@
     .card { background: #141414; border: 1px solid #222; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
     .camrow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
     .camrow .cid { font-size: 11px; color: #777; width: 42px; }
-    .camrow input { flex: 1; font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
+    .camrow input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
     .phone .name { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
     .phone.off { opacity: 0.6; }
     .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
@@ -163,7 +164,8 @@
     <span id="conn" class="badge muted">connecting…</span>
     <span id="live" class="badge muted">0 live</span>
     <span id="recstate" class="badge muted">not recording</span>
-    <label class="layout">Layout <span id="colsMount"></span></label>
+    <span class="layout">Layout <span id="colsMount"></span></span>
+    <span class="layout">Bitrate <span id="bitrateMount"></span></span>
     <button id="preflightBtn" class="stop sm">Pre-flight</button>
     <button id="recordingsBtn" class="stop sm">Recordings</button>
     <div class="spacer"></div>
@@ -272,7 +274,7 @@
       ws = new WebSocket(`wss://${location.host}/ws/operator`);
       ws.onopen = () => { wsDelay = 1000; setBadge($('conn'), 'ok', 'connected'); };
       ws.onclose = () => { setBadge($('conn'), 'bad', 'reconnecting…'); setTimeout(connectWS, wsDelay); wsDelay = Math.min(wsDelay * 2, 30000); };
-      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); syncGrid(); renderProgram(); renderSwitchLog(); } };
+      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); renderGlobalBitrate(); syncGrid(); renderProgram(); renderSwitchLog(); } };
     }
     const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
@@ -295,6 +297,17 @@
         input.addEventListener('focus', () => setBusy(true));
         input.addEventListener('blur', commit);
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+
+        // Per-camera bitrate override ("Global" = inherit the header default).
+        const brOpts = [{ value: '', label: 'Global' }].concat(BITRATES);
+        const brDd = createDropdown({
+          value: typeof c.bitrate === 'number' ? String(c.bitrate) : '', opts: brOpts, compact: true,
+          placeholder: 'Global', onOpenChange: setBusy,
+          onChange: (v) => send({ type: 'setCameraBitrate', id: c.id, bitrate: v === '' ? null : Number(v) }),
+        });
+        brDd.el.style.flex = 'none'; brDd.el.style.width = '90px';
+        row.insertBefore(brDd.el, row.querySelector('button'));
+
         row.querySelector('button').addEventListener('click', async () => {
           if (await showModal({ title: 'Remove camera', message: `Remove "${c.label}" (${c.id})?`, confirmLabel: 'Remove', danger: true })) {
             send({ type: 'removeCamera', id: c.id });
@@ -942,6 +955,32 @@
     }
     applyCols(savedCols);
     mountColsDropdown();
+
+    // Publish-bitrate options (bps). Global default + per-camera overrides are
+    // operator-controlled; the control service is the source of truth.
+    const BITRATES = [4, 6, 8, 10, 12].map((m) => ({ value: String(m * 1_000_000), label: m + ' Mbps' }));
+    // Global bitrate dropdown in the header. Its value comes from server state,
+    // so re-mount when that changes (but never while the menu is open). createDropdown
+    // doesn't restyle its own button on selection, so onChange re-mounts for instant
+    // feedback (mirrors the Layout dropdown); the later server echo is then a no-op.
+    let bitrateOpen = false, shownGlobalBitrate = null;
+    function mountGlobalBitrate(value) {
+      shownGlobalBitrate = value;
+      const dd = createDropdown({
+        value, compact: true, opts: BITRATES,
+        onOpenChange: (o) => { bitrateOpen = o; },
+        onChange: (v) => { send({ type: 'setGlobalBitrate', bitrate: Number(v) }); mountGlobalBitrate(v); },
+      });
+      const mount = $('bitrateMount');
+      mount.innerHTML = '';
+      mount.appendChild(dd.el);
+    }
+    function renderGlobalBitrate() {
+      if (bitrateOpen) return;
+      const cur = String(lastState.globalBitrate || 8_000_000);
+      if (cur !== shownGlobalBitrate) mountGlobalBitrate(cur);
+    }
+    renderGlobalBitrate();
 
     function syncGrid() {
       const cams = lastState.cameras || [];

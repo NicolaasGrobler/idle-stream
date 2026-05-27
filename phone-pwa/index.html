@@ -100,10 +100,12 @@
     const log = (m) => { $('log').textContent = `[${new Date().toLocaleTimeString()}] ${m}\n` + $('log').textContent; };
     const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
 
-    // Target publish bitrate. Recording is copy-only, so this is the recording
-    // quality at 1080p30. 8 Mbps is a solid quality bump over the old 5; push
-    // higher (10–12M) only if the WiFi/AP has headroom for every phone at once.
-    const MAX_VIDEO_BITRATE = 8_000_000;
+    // Target publish bitrate at 1080p30 (recording is copy-only, so this is the
+    // recording quality). The operator owns it now: the publish command carries
+    // an effective bitrate, and a live {type:'bitrate'} message adjusts it
+    // mid-session. This default only applies until the first command arrives.
+    const DEFAULT_BITRATE = 8_000_000;
+    let currentBitrate = DEFAULT_BITRATE;
 
     // Persistent identity: survives WiFi blips / reloads so the operator keeps
     // this phone's camera-slot assignment instead of seeing a new phone.
@@ -138,6 +140,16 @@
         if (h264.length) { try { t.setCodecPreferences([...h264, ...rest]); } catch {} }
       }
     }
+    // Apply currentBitrate to the live video sender (no renegotiation needed).
+    async function applyBitrate() {
+      if (!pc) return;
+      const v = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+      if (!v) return;
+      const pr = v.getParameters();
+      if (!pr.encodings || !pr.encodings.length) pr.encodings = [{}];
+      pr.encodings[0].maxBitrate = currentBitrate;
+      try { await v.setParameters(pr); } catch {}
+    }
     function waitIce(peer) {
       return new Promise((resolve) => {
         if (peer.iceGatheringState === 'complete') return resolve();
@@ -168,8 +180,7 @@
         const res = await fetch(`/${slot}/whip`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
         if (!res.ok) throw new Error('WHIP ' + res.status);
         await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
-        const v = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-        if (v) { const pr = v.getParameters(); if (!pr.encodings || !pr.encodings.length) pr.encodings = [{}]; pr.encodings[0].maxBitrate = MAX_VIDEO_BITRATE; try { await v.setParameters(pr); } catch {} }
+        await applyBitrate();
         publishing = true;
         startStats();
         log(`Publishing to ${slot}.`);
@@ -263,8 +274,12 @@
         if (!publishing) setBadge($('status'), assignedSlot ? 'muted' : 'muted', assignedSlot ? 'standby' : 'waiting for operator');
         log(assignedSlot ? `Assigned to ${assignedSlot}.` : 'Unassigned.');
       } else if (msg.type === 'command') {
-        if (msg.action === 'publish') startPublish(msg.slot || assignedSlot);
-        else if (msg.action === 'stop') stopPublish();
+        if (msg.action === 'publish') {
+          if (msg.bitrate) currentBitrate = msg.bitrate;   // operator-set effective bitrate
+          startPublish(msg.slot || assignedSlot);
+        } else if (msg.action === 'stop') stopPublish();
+      } else if (msg.type === 'bitrate') {
+        if (msg.bitrate) { currentBitrate = msg.bitrate; applyBitrate(); }   // live change, no renegotiation
       } else if (msg.type === 'recording') {
         $('rec').style.display = msg.on ? 'flex' : 'none';
       }

@@ -83,6 +83,8 @@ function makeSvc(mtx, opts = {}) {
   const svc = createService(mtx, {
     saveCameras: () => {},
     appendSession: (s) => sessions.push(s),
+    loadSettings: () => ({ globalBitrate: 8_000_000 }),   // hermetic: don't read/write data/settings.json
+    saveSettings: () => {},
     ...opts,
   });
   svc.state.cameras = [
@@ -239,7 +241,7 @@ test('persistent-id reconnect: slot survives, recording resumes, stale socket cl
   assert.equal(svc.state.phones.size, 1);                  // no duplicate phone created
   assert.equal(ws2.last('registered').recording, true);
   assert.equal(ws2.last('assigned').slot, 'cam1');
-  assert.deepEqual(ws2.last('command'), { type: 'command', action: 'publish', slot: 'cam1' });
+  assert.deepEqual(ws2.last('command'), { type: 'command', action: 'publish', slot: 'cam1', bitrate: 8_000_000 });
 
   // A *third* socket claiming the same id closes the previous one (ws2).
   const ws3 = new FakeWS();
@@ -403,14 +405,14 @@ test('preview follows assignment: a phone assigned while previewing auto-publish
   // Start preview: pa (already assigned) is told to publish, and the flag sticks.
   await op.feed({ type: 'startPreview' });
   assert.equal(svc.state.previewing, true);
-  assert.deepEqual(aWs.last('command'), { type: 'command', action: 'publish', slot: 'cam1' });
+  assert.deepEqual(aWs.last('command'), { type: 'command', action: 'publish', slot: 'cam1', bitrate: 8_000_000 });
 
   // A phone assigned AFTER preview started auto-publishes — no second Start Preview.
   const bWs = new FakeWS();
   const b = svc.connectPhone(bWs);
   await b.feed({ type: 'register', phoneId: 'pb', name: 'B' });
   await op.feed({ type: 'assign', phoneId: 'pb', slot: 'cam2' });
-  assert.deepEqual(bWs.last('command'), { type: 'command', action: 'publish', slot: 'cam2' });
+  assert.deepEqual(bWs.last('command'), { type: 'command', action: 'publish', slot: 'cam2', bitrate: 8_000_000 });
 
   // Reassigning cam1 from pa to a third phone: the new holder publishes; pa is
   // told it's unassigned (the phone self-stops on assigned:null).
@@ -418,7 +420,7 @@ test('preview follows assignment: a phone assigned while previewing auto-publish
   const c = svc.connectPhone(cWs);
   await c.feed({ type: 'register', phoneId: 'pc', name: 'C' });
   await op.feed({ type: 'assign', phoneId: 'pc', slot: 'cam1' });
-  assert.deepEqual(cWs.last('command'), { type: 'command', action: 'publish', slot: 'cam1' });
+  assert.deepEqual(cWs.last('command'), { type: 'command', action: 'publish', slot: 'cam1', bitrate: 8_000_000 });
   assert.equal(aWs.last('assigned').slot, null);
   assert.equal(svc.state.phones.get('pa').slot, null);
 
@@ -443,7 +445,7 @@ test('preview resumes on reconnect (not only during recording)', async () => {
   const p2 = svc.connectPhone(ws2);
   await p2.feed({ type: 'register', phoneId: 'pa', name: 'A' });
   assert.equal(ws2.last('assigned').slot, 'cam1');
-  assert.deepEqual(ws2.last('command'), { type: 'command', action: 'publish', slot: 'cam1' });
+  assert.deepEqual(ws2.last('command'), { type: 'command', action: 'publish', slot: 'cam1', bitrate: 8_000_000 });
 });
 
 test('switch only logs cameras in the recording set', async () => {
@@ -491,6 +493,71 @@ test('a camera that goes live mid-recording joins the recording set and is takea
   await op.feed({ type: 'switch', camId: 'cam2' });          // now recordable -> logged
   assert.equal(svc.state.switches.length, 1);
   assert.equal(svc.state.switches[0].camId, 'cam2');
+});
+
+test('bitrate: publish command carries the effective bitrate; global change adjusts phones live', async () => {
+  const mtx = new StubMTX();
+  const saved = [];
+  const svc = makeSvc(mtx, { saveSettings: (s) => saved.push(s) });
+  assert.equal(svc.state.snapshot().globalBitrate, 8_000_000);   // default
+
+  const op = svc.connectOperator(new FakeWS());
+  const aWs = new FakeWS();
+  const a = svc.connectPhone(aWs);
+  await a.feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+
+  // Preview: the publish command includes the effective (global) bitrate.
+  await op.feed({ type: 'startPreview' });
+  assert.deepEqual(aWs.last('command'), { type: 'command', action: 'publish', slot: 'cam1', bitrate: 8_000_000 });
+
+  // Change the global bitrate: persisted, snapshot updated, and the publishing
+  // phone gets a live {type:'bitrate'} message (no renegotiation).
+  await op.feed({ type: 'setGlobalBitrate', bitrate: 12_000_000 });
+  assert.equal(svc.state.globalBitrate, 12_000_000);
+  assert.equal(svc.state.snapshot().globalBitrate, 12_000_000);
+  assert.deepEqual(saved.at(-1), { globalBitrate: 12_000_000 });
+  assert.deepEqual(aWs.last('bitrate'), { type: 'bitrate', bitrate: 12_000_000 });
+
+  // Out-of-range values are clamped; garbage is ignored.
+  await op.feed({ type: 'setGlobalBitrate', bitrate: 999_999_999 });
+  assert.equal(svc.state.globalBitrate, 20_000_000);             // clamped to MAX
+  await op.feed({ type: 'setGlobalBitrate', bitrate: 'nope' });
+  assert.equal(svc.state.globalBitrate, 20_000_000);             // unchanged
+});
+
+test('bitrate: a per-camera override wins over global and clears back to it', async () => {
+  const mtx = new StubMTX();
+  const camsSaved = [];
+  const svc = makeSvc(mtx, { saveCameras: (c) => camsSaved.push(c.map((x) => ({ ...x }))) });
+  const op = svc.connectOperator(new FakeWS());
+  const aWs = new FakeWS();
+  const a = svc.connectPhone(aWs);
+  await a.feed({ type: 'register', phoneId: 'pa', name: 'A' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+
+  // Override cam1 to 4 Mbps: persisted, reflected in the snapshot, and pushed to
+  // the phone on that slot.
+  await op.feed({ type: 'setCameraBitrate', id: 'cam1', bitrate: 4_000_000 });
+  assert.equal(svc.state.effectiveBitrate('cam1'), 4_000_000);
+  assert.equal(svc.state.snapshot().cameras.find((c) => c.id === 'cam1').bitrate, 4_000_000);
+  assert.deepEqual(aWs.last('bitrate'), { type: 'bitrate', bitrate: 4_000_000 });
+  assert.equal(camsSaved.at(-1).find((c) => c.id === 'cam1').bitrate, 4_000_000);
+
+  // Override wins over a global change for this camera; cam2 (no override) follows global.
+  await op.feed({ type: 'setGlobalBitrate', bitrate: 10_000_000 });
+  assert.equal(svc.state.effectiveBitrate('cam1'), 4_000_000);   // override unchanged
+  assert.equal(svc.state.effectiveBitrate('cam2'), 10_000_000);
+
+  // Publish command for cam1 uses the override.
+  await op.feed({ type: 'startPreview' });
+  assert.equal(aWs.last('command').bitrate, 4_000_000);
+
+  // Clear the override (null): reverts to global.
+  await op.feed({ type: 'setCameraBitrate', id: 'cam1', bitrate: null });
+  assert.equal(svc.state.snapshot().cameras.find((c) => c.id === 'cam1').bitrate, null);
+  assert.equal(svc.state.effectiveBitrate('cam1'), 10_000_000);
+  assert.deepEqual(aWs.last('bitrate'), { type: 'bitrate', bitrate: 10_000_000 });
 });
 
 test('snapshot includes the previewing flag', async () => {
