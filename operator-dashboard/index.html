@@ -293,6 +293,7 @@
           <input value="${escapeHtml(c.label)}" />
           <button class="sm stop" title="Remove">×</button>`;
         const input = row.querySelector('input');
+        const removeBtn = row.querySelector('button');   // capture before inserting the dropdown (which adds its own <button>)
         const commit = () => { setBusy(false); const v = input.value.trim(); if (v && v !== c.label) send({ type: 'renameCamera', id: c.id, label: v }); };
         input.addEventListener('focus', () => setBusy(true));
         input.addEventListener('blur', commit);
@@ -306,9 +307,9 @@
           onChange: (v) => send({ type: 'setCameraBitrate', id: c.id, bitrate: v === '' ? null : Number(v) }),
         });
         brDd.el.style.flex = 'none'; brDd.el.style.width = '90px';
-        row.insertBefore(brDd.el, row.querySelector('button'));
+        row.insertBefore(brDd.el, removeBtn);
 
-        row.querySelector('button').addEventListener('click', async () => {
+        removeBtn.addEventListener('click', async () => {
           if (await showModal({ title: 'Remove camera', message: `Remove "${c.label}" (${c.id})?`, confirmLabel: 'Remove', danger: true })) {
             send({ type: 'removeCamera', id: c.id });
           }
