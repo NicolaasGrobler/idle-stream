@@ -405,11 +405,11 @@
         return `<button class="sm stop sess-export" data-idx="${i}" disabled>Exporting ${Math.round((ex.progress || 0) * 100)}%</button>`;
       }
       if (ex && ex.ready) {
-        return `<a class="sm go" href="/api/export/download?id=${encodeURIComponent(sid)}" download="${escapeHtml(name || sid)}.mp4" style="text-decoration:none" title="Download rendered MP4">⬇ MP4</a>`
+        return `<a class="sm go" href="/api/export/download?id=${encodeURIComponent(sid)}" download="${escapeHtml(name || sid)}.mp4" style="text-decoration:none" title="Download rendered MP4">⬇ Download MP4</a>`
           + `<button class="sm stop sess-export" data-idx="${i}" title="Re-export">↻</button>`;
       }
       if (ex && ex.status === 'error') {
-        return `<button class="sm stop sess-export" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">⚠ Retry</button>`;
+        return `<button class="sm stop sess-export" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">⚠ Export failed — retry</button>`;
       }
       return `<button class="sm stop sess-export" data-idx="${i}" title="Render the program edit to one MP4">⤓ Export</button>`;
     }
@@ -493,6 +493,8 @@
       let sessCam = 'all';                 // selected camera sub-tab within Sessions
       const data = { recCams: [], sess: [], exports: {} };
       let exportPoll = null;
+      const startedExports = new Set();   // sids the operator kicked off this session
+      const autoActed = new Set();        // sids we've already auto-downloaded / alerted on
       const close = () => { clearTimeout(exportPoll); overlay.remove(); document.removeEventListener('keydown', onKey, true); };
       const onKey = (e) => { if (e.key === 'Escape') close(); };
       document.addEventListener('keydown', onKey, true);
@@ -513,7 +515,17 @@
             b.addEventListener('click', async () => {
               const sid = data.sess[Number(b.dataset.idx)].sessionId;
               b.disabled = true; b.textContent = 'Starting…';
-              try { await fetch(`/api/export?id=${encodeURIComponent(sid)}`, { method: 'POST' }); } catch {}
+              try {
+                const res = await fetch(`/api/export?id=${encodeURIComponent(sid)}`, { method: 'POST' });
+                if (!res.ok) {
+                  const msg = await res.json().then((j) => j.error).catch(() => `HTTP ${res.status}`);
+                  throw new Error(msg || `HTTP ${res.status}`);
+                }
+                startedExports.add(sid);
+                autoActed.delete(sid);     // allow auto-download on this fresh run
+              } catch (e) {
+                showModal({ title: 'Export failed to start', message: String(e.message || e), confirmLabel: 'OK' });
+              }
               pollExports();
             }));
         } else {
@@ -530,8 +542,23 @@
 
       // Poll the export job map while any job is running; re-render so the
       // Sessions tab reflects live progress and surfaces the download when done.
+      // For exports the operator started this session, auto-download the finished
+      // MP4 (and surface failures) so a click always produces visible feedback.
+      function triggerDownload(sid) {
+        const s = data.sess.find((x) => x.sessionId === sid);
+        const a = document.createElement('a');
+        a.href = `/api/export/download?id=${encodeURIComponent(sid)}`;
+        a.download = ((s && s.name) || sid) + '.mp4';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
       async function pollExports() {
         try { data.exports = await fetch('/api/export').then((r) => r.json()); } catch { return; }
+        for (const sid of startedExports) {
+          const j = data.exports[sid];
+          if (!j || autoActed.has(sid)) continue;
+          if (j.ready) { autoActed.add(sid); triggerDownload(sid); }
+          else if (j.status === 'error') { autoActed.add(sid); showModal({ title: 'Export failed', message: String(j.error || 'unknown error'), confirmLabel: 'OK' }); }
+        }
         if (active === 'sessions') renderTab();
         clearTimeout(exportPoll);
         if (Object.values(data.exports).some((j) => j && j.status === 'running')) exportPoll = setTimeout(pollExports, 1200);
