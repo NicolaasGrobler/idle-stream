@@ -192,7 +192,17 @@ Open **8443/tcp**, **8444/tcp** (if the operator is on another machine), and
   session, and download recordings. Run it on a trusted network.
 - The cross-platform Node launcher is exercised on Windows; the macOS/Linux code
   paths (tool download/extract, `lsof`-based stop) are written but not yet
-  verified on those OSes.
+  verified on those OSes — see the Roadmap below.
+- The one-click installer and the tray launcher are **Windows-only** today.
+
+## Roadmap
+
+Planned work, tracked as GitHub issues:
+
+- **[macOS & Linux support](https://github.com/openidle-dev/idle-stream/issues/1)** — verify the CLI/`multicam` binary on those OSes, then per-OS packaging and a window-free tray (the core already runs cross-platform).
+- **[Crossfade transitions in the export](https://github.com/openidle-dev/idle-stream/issues/2)** — optional dissolves between cuts in the rendered MP4 (today it's hard cuts).
+- **[Screen capture as a camera](https://github.com/openidle-dev/idle-stream/issues/3)** — publish a desktop's screen (operator's or another device's) as a camera via `getDisplayMedia()`, same recording pipeline.
+- **[External mic (e.g. DJI wireless) audio in clips](https://github.com/openidle-dev/idle-stream/issues/4)** — a mic on a publishing device is already captured; planned is a dedicated audio-only source mixed into the edit.
 
 ## Project layout
 
