@@ -49,7 +49,7 @@ function Start-Stack {
   & $Exe up 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) {
     $script:running = $true
-    $notify.Text = "Wireless Multicam Studio - running`n$script:operatorUrl"
+    $notify.Text = 'Wireless Multicam Studio - running'   # NotifyIcon.Text caps at 64 chars; URL lives in the balloon + menu
     Balloon 'Wireless Multicam Studio' "Running.`nOperator: $script:operatorUrl`nRight-click the tray icon for options."
   } else {
     $script:running = $false
