@@ -461,7 +461,7 @@
             <input type="checkbox" class="xf-on" style="width:16px;height:16px;accent-color:#16a34a" /> Crossfade transitions
           </label>
           <p class="modal-msg" style="margin:0 0 10px">Off = clean hard cuts (fast). On = dissolve between angles (re-encode).</p>
-          <div class="xf-dur hidden" style="display:flex;align-items:center;gap:8px;margin:0 0 14px;color:#bbb;font-size:14px">Fade <span class="xf-mount"></span></div>
+          <div class="xf-dur" style="display:none;align-items:center;gap:8px;margin:0 0 14px;color:#bbb;font-size:14px">Fade <span class="xf-mount"></span></div>
           <div class="modal-actions">
             <button class="stop modal-cancel">Cancel</button>
             <button class="go modal-ok">Render</button>
@@ -469,15 +469,15 @@
         document.body.appendChild(overlay);
         const cb = overlay.querySelector('.xf-on');
         const durRow = overlay.querySelector('.xf-dur');
-        let fade = '0.5';
+        let fade = '0.3';
         const dd = createDropdown({
-          value: '0.5', compact: true,
+          value: '0.3', compact: true,
           opts: [{ value: '0.3', label: '0.3s' }, { value: '0.5', label: '0.5s' }, { value: '1.0', label: '1.0s' }],
           onChange: (v) => { fade = v; },
         });
         dd.el.style.width = '84px';
         overlay.querySelector('.xf-mount').appendChild(dd.el);
-        cb.addEventListener('change', () => durRow.classList.toggle('hidden', !cb.checked));
+        cb.addEventListener('change', () => { durRow.style.display = cb.checked ? 'flex' : 'none'; });
         const done = (val) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(val); };
         overlay.querySelector('.modal-ok').addEventListener('click', () => done({ crossfade: cb.checked, fade: Number(fade) }));
         overlay.querySelector('.modal-cancel').addEventListener('click', () => done(null));
