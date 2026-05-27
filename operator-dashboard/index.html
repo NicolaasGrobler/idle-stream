@@ -140,6 +140,8 @@
     .pf-ok { color: #4ade80; } .pf-warn { color: #fbbf24; } .pf-bad { color: #f87171; }
     /* Session preview player */
     .player { width: min(900px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+    .player:fullscreen { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; }
+    .player:fullscreen .player-stage { flex: 1; aspect-ratio: auto; min-height: 0; }
     .player-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
     .player-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: none; }
     .player-stage video.active { display: block; }
@@ -158,6 +160,9 @@
     .player-tip canvas { display: block; width: 160px; height: 90px; border-radius: 4px; background: #111; }
     .player-tip .pt-gap { display: none; width: 160px; height: 90px; align-items: center; justify-content: center; color: #888; font-size: 12px; text-align: center; padding: 0 8px; box-sizing: border-box; }
     .player-tip .pt-time { display: block; text-align: center; font-variant-numeric: tabular-nums; font-size: 12px; color: #ddd; margin-top: 3px; }
+    .player-tip .pt-spin { position: absolute; left: 4px; top: 4px; width: 160px; height: 90px; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); border-radius: 4px; }
+    .player-tip .pt-spin.on { display: flex; }
+    .player-tip .pt-spin::after { content: ''; width: 26px; height: 26px; border: 3px solid rgba(255,255,255,0.25); border-top-color: #16a34a; border-radius: 50%; animation: pl-spin 0.8s linear infinite; }
     /* Switch log */
     #switchlogList { max-height: 240px; overflow: auto; }
     .swrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid #1c1c1c; font-size: 13px; }
@@ -763,13 +768,14 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `<div class="modal player">
         <div class="rec-head"><h3>Preview · ${escapeHtml(session.name || session.startedAtIso || '')}</h3><span class="spacer"></span>
+          <button class="sm stop pl-fs">⛶ Fullscreen</button>
           <button class="sm stop pl-close">Close</button></div>
         <div class="player-stage"><div class="player-camlabel"></div><div class="player-black">— before first take —</div><div class="player-spinner"></div></div>
         <div class="player-controls">
           <button class="go pl-play" style="min-width:84px">▶ Play</button>
           <span class="player-time">00:00 / ${fmtOffset(dur)}</span>
           <div class="player-bar"><div class="player-fill"></div>
-            <div class="player-tip"><canvas width="160" height="90"></canvas><div class="pt-gap"></div><span class="pt-time"></span></div></div>
+            <div class="player-tip"><canvas width="160" height="90"></canvas><div class="pt-spin"></div><div class="pt-gap"></div><span class="pt-time"></span></div></div>
         </div></div>`;
       document.body.appendChild(overlay);
       const stage = overlay.querySelector('.player-stage');
@@ -786,15 +792,31 @@
       const tipCtx = tipCanvas.getContext('2d');
       const tipGap = tip.querySelector('.pt-gap');
       const tipTime = tip.querySelector('.pt-time');
+      const tipSpin = tip.querySelector('.pt-spin');
+      const playerEl = overlay.querySelector('.player');
+      // Delay the thumbnail spinner so a fast (cached) seek doesn't flash it.
+      let thumbSpinTimer = 0;
+      const showThumbSpin = () => { clearTimeout(thumbSpinTimer); thumbSpinTimer = setTimeout(() => tipSpin.classList.add('on'), 120); };
+      const hideThumbSpin = () => { clearTimeout(thumbSpinTimer); tipSpin.classList.remove('on'); };
+
+      // Show the stage spinner whenever the active clip can't play yet (buffering
+      // or seeking) — independent of play state, so it also covers initial load
+      // and seeking while paused. No active clip = a black gap, nothing to load.
+      function refreshStageLoading() {
+        const a = activeId && vids[activeId];
+        setLoading(!!(a && (a.readyState < 3 || a.seeking)));
+      }
 
       const vids = {};
       const thumbVids = {};   // hidden per-clip videos seeked for hover thumbnails
+      const LOAD_EVENTS = ['loadstart', 'waiting', 'seeking', 'stalled', 'emptied', 'loadeddata', 'canplay', 'canplaythrough', 'seeked', 'playing', 'progress'];
       for (const [id, c] of Object.entries(cams)) {
         if (!c.url) continue;
         const v = document.createElement('video');
         v.playsInline = true; v.preload = 'auto'; v.muted = true; v.src = c.url;
         stage.insertBefore(v, black);
         vids[id] = v;
+        for (const ev of LOAD_EVENTS) v.addEventListener(ev, () => { if (id === activeId) refreshStageLoading(); });
         const tv = document.createElement('video');
         tv.playsInline = true; tv.preload = 'metadata'; tv.muted = true; tv.style.display = 'none'; tv.src = c.url;
         stage.appendChild(tv);
@@ -850,6 +872,7 @@
         } else if (!id) {
           black.textContent = blackTextFor(t);
         }
+        refreshStageLoading();
       }
       function ui() { fill.style.width = `${(100 * Math.min(sessionTime, dur)) / (dur || 1)}%`; timeEl.textContent = `${fmtOffset(sessionTime)} / ${fmtOffset(dur)}`; }
 
@@ -860,12 +883,8 @@
         else sessionTime += (ms - lastMs) / 1000;     // advance through black/missing footage
         lastMs = ms;
         if (sessionTime >= dur) { sessionTime = dur; setActiveFor(dur); pause(); ui(); return; }
-        setActiveFor(sessionTime);
+        setActiveFor(sessionTime);   // also refreshes the buffering spinner
         ui();
-        // Buffering: the active clip has no playable data yet (or is seeking).
-        // No active clip = a black gap, nothing to load.
-        const av = activeId && vids[activeId];
-        setLoading(!!(av && (av.readyState < 3 || av.seeking)));
         raf = requestAnimationFrame(tick);
       }
       function play() {
@@ -873,36 +892,61 @@
         playing = true; playBtn.textContent = '❚❚ Pause';
         activeId = undefined; setActiveFor(sessionTime);
         if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} vids[activeId].play().catch(() => {}); }
-        const av = activeId && vids[activeId]; setLoading(!!(av && av.readyState < 3));   // instant feedback before the first tick
         lastMs = performance.now(); raf = requestAnimationFrame(tick);
       }
-      function pause() { playing = false; playBtn.textContent = '▶ Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); setLoading(false); }
+      function pause() { playing = false; playBtn.textContent = '▶ Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); refreshStageLoading(); }
       function seekTo(t) {
         sessionTime = Math.max(0, Math.min(dur, t)); activeId = undefined; setActiveFor(sessionTime); ui();
-        if (playing && activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} vids[activeId].play().catch(() => {}); }
+        // Seek the active clip's frame even when paused, so scrubbing shows the
+        // frame under the cursor (not just a moving fill bar).
+        if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} if (playing) vids[activeId].play().catch(() => {}); }
+        refreshStageLoading();
         lastMs = performance.now();
       }
 
       playBtn.addEventListener('click', () => (playing ? pause() : play()));
-      bar.addEventListener('click', (e) => { const r = bar.getBoundingClientRect(); seekTo(((e.clientX - r.left) / r.width) * dur); });
+      // Drag-scrub: pointer capture so the fill (and frame) follow while dragging,
+      // not only on release. A plain click still seeks (pointerdown fires once).
+      let dragging = false;
+      const seekFromX = (clientX) => { const r = bar.getBoundingClientRect(); const x = Math.max(0, Math.min(r.width, clientX - r.left)); seekTo((x / r.width) * dur); };
+      bar.addEventListener('pointerdown', (e) => { dragging = true; try { bar.setPointerCapture(e.pointerId); } catch {} seekFromX(e.clientX); });
+      bar.addEventListener('pointermove', (e) => { if (dragging) seekFromX(e.clientX); });
+      const endDrag = (e) => { if (!dragging) return; dragging = false; try { bar.releasePointerCapture(e.pointerId); } catch {} };
+      bar.addEventListener('pointerup', endDrag);
+      bar.addEventListener('pointercancel', endDrag);
+
+      // Fullscreen the whole player (stage grows to fill; controls stay visible).
+      const fsBtn = overlay.querySelector('.pl-fs');
+      const onFsChange = () => { fsBtn.textContent = document.fullscreenElement === playerEl ? '⛶ Exit fullscreen' : '⛶ Fullscreen'; };
+      fsBtn.addEventListener('click', () => {
+        if (document.fullscreenElement === playerEl) document.exitFullscreen?.();
+        else if (playerEl.requestFullscreen) playerEl.requestFullscreen().catch(() => {});
+      });
+      document.addEventListener('fullscreenchange', onFsChange);
 
       // ----- Hover thumbnail on the scrubber -----
       // Seek a hidden per-clip <video> to the hovered time and draw its frame to
       // the tooltip canvas. Seeks are coalesced (a new hover position while a
       // seek is in flight just updates the target) so rapid moves stay smooth.
       let hoverId = null;
+      const drawThumb = (v) => { if (hoverId != null) { try { tipCtx.drawImage(v, 0, 0, tipCanvas.width, tipCanvas.height); } catch {} hideThumbSpin(); } };
       function pumpThumb(id) {
         const v = thumbVids[id];
         if (!v || v._want == null || v._seeking) return;
-        const target = v._want; v._want = null; v._seeking = true;
+        const target = v._want; v._want = null;
+        // Already at the target with a decodable frame: draw now (no seek event
+        // would fire, which would otherwise leave the spinner stuck on).
+        if (v.readyState >= 2 && Math.abs(v.currentTime - target) < 0.04) { drawThumb(v); if (v._want != null) pumpThumb(id); return; }
+        v._seeking = true;
+        if (hoverId === id) showThumbSpin();
         const onSeeked = () => {
           v.removeEventListener('seeked', onSeeked);
           v._seeking = false;
-          if (hoverId === id) { try { tipCtx.drawImage(v, 0, 0, tipCanvas.width, tipCanvas.height); } catch {} }
+          if (hoverId === id) drawThumb(v);
           pumpThumb(id);                       // a newer position may have queued
         };
         v.addEventListener('seeked', onSeeked);
-        try { v.currentTime = target; } catch { v._seeking = false; }
+        try { v.currentTime = target; } catch { v._seeking = false; hideThumbSpin(); }
       }
       bar.addEventListener('mousemove', (e) => {
         if (!dur) return;
@@ -921,13 +965,17 @@
           thumbVids[id]._want = Math.max(0, t - cams[id].delay);
           pumpThumb(id);
         } else {
-          tipCanvas.style.display = 'none'; tipGap.style.display = 'flex';
+          tipCanvas.style.display = 'none'; tipGap.style.display = 'flex'; hideThumbSpin();
           tipGap.textContent = seg.camId ? (vids[seg.camId] ? 'footage ended' : `no footage`) : 'before first take';
         }
       });
-      bar.addEventListener('mouseleave', () => { tip.style.display = 'none'; hoverId = null; });
+      bar.addEventListener('mouseleave', () => { tip.style.display = 'none'; hoverId = null; hideThumbSpin(); });
 
-      const close = () => { pause(); for (const v of [...Object.values(vids), ...Object.values(thumbVids)]) { v.removeAttribute('src'); v.load(); } overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const close = () => {
+        if (document.fullscreenElement === playerEl) document.exitFullscreen?.();
+        document.removeEventListener('fullscreenchange', onFsChange);
+        pause(); for (const v of [...Object.values(vids), ...Object.values(thumbVids)]) { v.removeAttribute('src'); v.load(); } overlay.remove(); document.removeEventListener('keydown', onKey, true);
+      };
       const onKey = (e) => { if (e.key === 'Escape') close(); else if (e.key === ' ') { e.preventDefault(); playing ? pause() : play(); } };
       document.addEventListener('keydown', onKey, true);
       overlay.querySelector('.pl-close').addEventListener('click', close);
