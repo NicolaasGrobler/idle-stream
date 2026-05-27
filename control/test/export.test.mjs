@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planSegments, planParts, fileForCam, planXfade } from '../exports.mjs';
+import { planSegments, planParts, fileForCam, planXfade, sectionAudio } from '../exports.mjs';
 
 test('planSegments: no switches -> one segment on the first camera', () => {
   const s = { durationSec: 10, cameras: [{ id: 'cam1' }, { id: 'cam2' }], switches: [] };
@@ -74,6 +74,31 @@ test('planXfade: clamps the fade to the shortest part, and bails when too short'
   // A part shorter than the 0.1 floor -> crossfade can't apply (caller hard-cuts).
   assert.equal(planXfade([{ dur: 3 }, { dur: 0.12 }, { dur: 3 }], 0.5), null);
   assert.equal(planXfade([{ dur: 5 }], 0.5), null);            // single part -> no transition
+});
+
+test('sectionAudio: explicit override wins; else linked mic; else camera-only', () => {
+  const session = {
+    cameras: [{ id: 'cam1', kind: 'video' }, { id: 'mic1', kind: 'audio', link: 'cam1' }],
+    audioRouting: { 1: { mic: 'mic1', mode: 'replace', camVol: 0.5, micVol: 1.5 } },
+  };
+  assert.deepEqual(sectionAudio(session, { camId: 'cam1' }, 1), { micId: 'mic1', mode: 'replace', camVol: 0.5, micVol: 1.5 });
+  assert.deepEqual(sectionAudio(session, { camId: 'cam1' }, 0), { micId: 'mic1', mode: 'mix', camVol: 1, micVol: 1 });   // linked default
+  assert.deepEqual(sectionAudio({ cameras: [] }, { camId: 'cam2' }, 0), { micId: null, mode: 'mix', camVol: 1, micVol: 1 });
+});
+
+test('planParts: a linked mic attaches an audio mix to the part; no link -> no audio field', () => {
+  const session = {
+    startedAt: 1000, durationSec: 6,
+    cameras: [{ id: 'cam1', kind: 'video', recordStartedAt: 1000 }, { id: 'mic1', kind: 'audio', link: 'cam1', recordStartedAt: 1000 }],
+    switches: [{ offset: 0, camId: 'cam1' }],
+  };
+  const clips = { cam1: { file: 'a.mp4', dur: 30, hasAudio: true, delay: 0 }, mic1: { file: 'm.mp4', dur: 30, hasAudio: true, delay: 0 } };
+  const parts = planParts(session, clips);
+  assert.equal(parts.length, 1);
+  assert.deepEqual(parts[0].audio, { mode: 'mix', camVol: 1, micVol: 1, micFile: 'm.mp4', micIn: 0 });
+
+  const noLink = { ...session, cameras: [{ id: 'cam1', kind: 'video', recordStartedAt: 1000 }] };
+  assert.equal(planParts(noLink, clips)[0].audio, undefined);   // byte-identical to before
 });
 
 test('fileForCam: picks the latest clip inside the session mtime window', () => {

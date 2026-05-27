@@ -36,6 +36,19 @@ export function appendSession(session) {
   writeFileSync(STORE, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+// Save a session's per-section audio routing (the export's mic/mix/volume config,
+// edited in the preview). `routing` is { segIndex: {mic, mode, camVol, micVol} }.
+// Returns true if the session was found and updated.
+export function setSessionAudio(sessionId, routing) {
+  const sessions = loadSessions();
+  const s = sessions.find((x) => x.sessionId === sessionId);
+  if (!s) return false;
+  s.audioRouting = routing && typeof routing === 'object' && !Array.isArray(routing) ? routing : {};
+  mkdirSync(dirname(STORE), { recursive: true });
+  writeFileSync(STORE, JSON.stringify(sessions, null, 2), 'utf-8');
+  return true;
+}
+
 // Remove one session by id. Returns true if a session was removed. The
 // recorded clip files are not touched (delete those via the recordings API).
 export function deleteSession(sessionId) {

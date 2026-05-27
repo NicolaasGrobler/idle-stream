@@ -565,6 +565,21 @@ function handleHttp(svc, req, res) {
     sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
     return;
   }
+  if (req.method === 'POST' && path === '/api/sessions/audio') {
+    // Save a session's per-section audio routing (mic/mix/volumes), edited in the
+    // preview. Body is the routing map { segIndex: {mic, mode, camVol, micVol} }.
+    const id = url.searchParams.get('id') ?? '';
+    let body = '';
+    req.on('data', (d) => { body += d; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      let routing;
+      try { routing = JSON.parse(body || '{}'); } catch { sendJson(res, 400, { error: 'bad json' }); return; }
+      const ok = switchesStore.setSessionAudio(id, routing);
+      sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
+    });
+    req.on('error', () => { if (!res.headersSent) sendJson(res, 400, { error: 'bad request' }); });
+    return;
+  }
   if (req.method === 'GET' && path === '/api/preflight') {
     sendJson(res, 200, recordingsStore.preflight());
     return;

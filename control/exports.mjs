@@ -80,11 +80,53 @@ export function planSegments(session) {
   return segs.filter((s) => s.end - s.start > 0.05);
 }
 
+const clampVol = (v, dflt) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.min(2, Math.round(n * 100) / 100) : dflt;
+};
+
+// Resolve a program section's audio routing. Precedence:
+//   1. an explicit per-section override on the session (`audioRouting[segIndex]`)
+//   2. else the section camera's linked mic (default mix at unity)
+//   3. else the camera's own audio only.
+// Returns { micId, mode:'mix'|'replace', camVol, micVol }. Pure.
+export function sectionAudio(session, seg, segIndex) {
+  const r = (session.audioRouting || {})[segIndex];
+  if (r && typeof r === 'object') {
+    return {
+      micId: r.mic || null,
+      mode: r.mode === 'replace' ? 'replace' : 'mix',
+      camVol: clampVol(r.camVol, 1),
+      micVol: clampVol(r.micVol, 1),
+    };
+  }
+  const linked = (session.cameras || []).find((c) => c.kind === 'audio' && c.link && c.link === seg.camId);
+  if (linked) return { micId: linked.id, mode: 'mix', camVol: 1, micVol: 1 };
+  return { micId: null, mode: 'mix', camVol: 1, micVol: 1 };
+}
+
 // Expand segments into concrete render parts: footage cuts and black fillers.
 // `clips` = { camId: { file, dur, hasAudio, delay } }. Pure (no ffmpeg).
+// A part gets an `audio` routing object only when it's non-trivial (a mic is
+// mixed/replaced, or the camera volume isn't unity) — so the common case stays
+// byte-identical and concat-copies.
 export function planParts(session, clips) {
   const parts = [];
-  for (const seg of planSegments(session)) {
+  const segs = planSegments(session);
+  for (let si = 0; si < segs.length; si++) {
+    const seg = segs[si];
+    const aud = sectionAudio(session, seg, si);
+    const micClip = aud.micId ? clips[aud.micId] : null;
+    const add = (p, sessionStart) => {
+      if (micClip && micClip.file && micClip.dur > 0) {
+        const micIn = round3(sessionStart - (micClip.delay || 0));
+        if (micIn + p.dur > 0.05 && micIn < micClip.dur) {   // mic footage overlaps this part
+          p.audio = { mode: aud.mode, camVol: aud.camVol, micVol: aud.micVol, micFile: micClip.file, micIn: Math.max(0, micIn) };
+        }
+      }
+      if (!p.audio && aud.camVol !== 1) p.audio = { mode: 'mix', camVol: aud.camVol, micVol: aud.micVol };
+      parts.push(p);
+    };
     const segDur = round3(seg.end - seg.start);
     const c = seg.camId ? clips[seg.camId] : null;
     if (c && c.file && c.dur > 0) {
@@ -92,13 +134,13 @@ export function planParts(session, clips) {
       const availStart = Math.max(seg.start, delay);
       const availEnd = Math.min(seg.end, delay + c.dur);
       if (availEnd - availStart > 0.05) {
-        if (availStart - seg.start > 0.05) parts.push({ type: 'black', dur: round3(availStart - seg.start) });
-        parts.push({ type: 'footage', file: c.file, clipIn: round3(availStart - delay), dur: round3(availEnd - availStart), hasAudio: !!c.hasAudio });
-        if (seg.end - availEnd > 0.05) parts.push({ type: 'black', dur: round3(seg.end - availEnd) });
+        if (availStart - seg.start > 0.05) add({ type: 'black', dur: round3(availStart - seg.start) }, seg.start);
+        add({ type: 'footage', file: c.file, clipIn: round3(availStart - delay), dur: round3(availEnd - availStart), hasAudio: !!c.hasAudio }, availStart);
+        if (seg.end - availEnd > 0.05) add({ type: 'black', dur: round3(seg.end - availEnd) }, availEnd);
         continue;
       }
     }
-    parts.push({ type: 'black', dur: segDur });
+    add({ type: 'black', dur: segDur }, seg.start);
   }
   return parts;
 }
@@ -181,19 +223,55 @@ const ENC = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt',
 const VF = `scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease,pad=${OUT_W}:${OUT_H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS}`;
 
 function partArgs(part, out) {
-  if (part.type === 'black') {
-    return ['-y', '-f', 'lavfi', '-i', `color=c=black:s=${OUT_W}x${OUT_H}:r=${FPS}`,
+  // ----- simple path (no audio routing): byte-identical to before, concat-copies -----
+  if (!part.audio) {
+    if (part.type === 'black') {
+      return ['-y', '-f', 'lavfi', '-i', `color=c=black:s=${OUT_W}x${OUT_H}:r=${FPS}`,
+        '-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${AR}`,
+        '-t', String(part.dur), ...ENC, out];
+    }
+    if (part.hasAudio) {
+      return ['-y', '-ss', String(part.clipIn), '-i', part.file, '-t', String(part.dur),
+        '-vf', VF, '-af', `aresample=${AR}`, ...ENC, out];
+    }
+    return ['-y', '-ss', String(part.clipIn), '-i', part.file,
       '-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${AR}`,
-      '-t', String(part.dur), ...ENC, out];
+      '-t', String(part.dur), '-map', '0:v:0', '-map', '1:a:0', '-vf', VF, ...ENC, out];
   }
-  if (part.hasAudio) {
-    return ['-y', '-ss', String(part.clipIn), '-i', part.file, '-t', String(part.dur),
-      '-vf', VF, '-af', `aresample=${AR}`, ...ENC, out];
+
+  // ----- routed path: per-section volumes + optional mic mix/replace via a graph -----
+  const a = part.audio;
+  const inputs = [];
+  let vLabel, camA, idx;
+  if (part.type === 'black') {
+    inputs.push('-f', 'lavfi', '-i', `color=c=black:s=${OUT_W}x${OUT_H}:r=${FPS}`);
+    inputs.push('-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${AR}`);
+    vLabel = '[0:v]'; camA = '[1:a]'; idx = 2;
+  } else if (part.hasAudio) {
+    inputs.push('-ss', String(part.clipIn), '-i', part.file);
+    vLabel = '[0:v]'; camA = '[0:a]'; idx = 1;
+  } else {
+    inputs.push('-ss', String(part.clipIn), '-i', part.file);
+    inputs.push('-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${AR}`);
+    vLabel = '[0:v]'; camA = '[1:a]'; idx = 2;
   }
-  // footage with no audio track -> synthesize matching silence
-  return ['-y', '-ss', String(part.clipIn), '-i', part.file,
-    '-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${AR}`,
-    '-t', String(part.dur), '-map', '0:v:0', '-map', '1:a:0', '-vf', VF, ...ENC, out];
+  const hasMic = !!a.micFile;
+  if (hasMic) inputs.push('-ss', String(a.micIn), '-i', a.micFile);
+  const muteCam = hasMic && a.mode === 'replace';
+
+  const fc = [];
+  let vmap = vLabel;
+  if (part.type !== 'black') { fc.push(`${vLabel}${VF}[v]`); vmap = '[v]'; }
+  // apad the camera bed so amix (duration=first) never truncates; output -t caps length.
+  fc.push(`${camA}aresample=${AR},volume=${muteCam ? 0 : a.camVol},apad[ca]`);
+  let amap = '[ca]';
+  if (hasMic) {
+    fc.push(`[${idx}:a]aresample=${AR},volume=${a.micVol},apad[ma]`);
+    fc.push(`[ca][ma]amix=inputs=2:duration=first:normalize=0[a]`);
+    amap = '[a]';
+  }
+  return ['-y', ...inputs, '-t', String(part.dur), '-filter_complex', fc.join(';'),
+    '-map', vmap, '-map', amap, ...ENC, out];
 }
 
 function run(bin, args, cwd) {

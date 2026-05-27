@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 
 import { createService } from '../index.mjs';
 import { resolveRecording, deleteRecording } from '../recordings.mjs';
-import { deleteSession, loadSessions } from '../switches.mjs';
+import { deleteSession, loadSessions, setSessionAudio } from '../switches.mjs';
 
 // A WebSocket-like double: captures everything the service sends, and emits
 // 'close' when the service closes it (so a stale-socket takeover is exercised).
@@ -668,6 +668,21 @@ test('deleteSession removes one session by id (clips untouched)', () => {
     assert.equal(deleteSession('bbb'), true);                   // removed
     assert.deepEqual(loadSessions().map((s) => s.sessionId), ['aaa', 'ccc']);
     assert.equal(deleteSession('bbb'), false);                  // already gone
+  } finally {
+    if (had === null) rmSync(store, { force: true }); else writeFileSync(store, had);
+  }
+});
+
+test('setSessionAudio stores per-section routing on a session by id', () => {
+  const store = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'switches.json');
+  const had = existsSync(store) ? readFileSync(store, 'utf-8') : null;
+  try {
+    writeFileSync(store, JSON.stringify([{ sessionId: 's1' }, { sessionId: 's2' }]));
+    assert.equal(setSessionAudio('nope', {}), false);                          // unknown id
+    const routing = { 0: { mic: 'mic1', mode: 'replace', camVol: 0.5, micVol: 1.2 } };
+    assert.equal(setSessionAudio('s1', routing), true);
+    assert.deepEqual(loadSessions().find((s) => s.sessionId === 's1').audioRouting, routing);
+    assert.equal(loadSessions().find((s) => s.sessionId === 's2').audioRouting, undefined);   // untouched
   } finally {
     if (had === null) rmSync(store, { force: true }); else writeFileSync(store, had);
   }
