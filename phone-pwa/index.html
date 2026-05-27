@@ -11,34 +11,57 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: #0a0a0a; color: #e8e8e8;
       font: 16px/1.4 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
-    body { display: flex; flex-direction: column; }
-    header { padding: 12px 16px; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 10px; }
-    header h1 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; }
-    #video { flex: 1; width: 100%; object-fit: cover; background: #000; min-height: 0; }
-    #panel { padding: 14px 16px; border-top: 1px solid #222; }
-    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-    input, select, button { font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid #333;
-      background: #161616; color: #e8e8e8; }
-    input { flex: 1; min-width: 160px; }
-    button.primary { background: #16a34a; border-color: #16a34a; color: #fff; font-weight: 600; }
+    body { position: relative; overflow: hidden; }
+    /* Live camera fills the screen (a viewfinder); hidden until joined. */
+    #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; display: none; z-index: 0; }
+    body.live #video { display: block; }
+    header { position: fixed; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; background: linear-gradient(180deg, rgba(0,0,0,0.72), rgba(0,0,0,0)); }
+    header h1 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
+    input, select, button { font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid #333; background: #161616; color: #e8e8e8; }
+    button.primary { background: #16a34a; border-color: #16a34a; color: #fff; font-weight: 700; }
     button:disabled { opacity: 0.4; }
     .badge { padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
     .ok { background: #052e16; color: #4ade80; }
     .warn { background: #3a2e05; color: #fbbf24; }
     .bad { background: #3b0a0a; color: #f87171; }
     .muted { background: #1a1a1a; color: #888; }
-    .rec { display: none; align-items: center; gap: 6px; color: #f87171; font-weight: 700; }
-    .rec .dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444; }
-    .big-slot { font-size: 28px; font-weight: 800; letter-spacing: 0.02em; }
-    pre { margin: 8px 0 0; padding: 10px; background: #111; border: 1px solid #222; border-radius: 8px;
-      font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 22vh; overflow: auto; }
+    .rec { display: none; align-items: center; gap: 6px; color: #f87171; font-weight: 800; font-size: 15px; }
+    .rec .dot { width: 12px; height: 12px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 10px #ef4444; animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: 0.35; } }
     .hidden { display: none !important; }
+
+    /* Pre-join: centered join card (no dead black video box before joining). */
+    #join { position: fixed; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 18px; overflow: auto; }
+    #join .card { width: 100%; max-width: 380px; background: #141414; border: 1px solid #242424; border-radius: 16px;
+      padding: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 24px 64px rgba(0,0,0,0.55); }
+    #join .card-title { font-size: 22px; font-weight: 800; }
+    #join .card-sub { margin: -6px 0 2px; color: #9aa0a6; font-size: 14px; }
+    #join input, #join select, #join button { width: 100%; }
+    #join .setup-link { color: #9aa0a6; font-size: 13px; text-decoration: none; text-align: center; }
+
+    /* Armed: large status overlaid on the viewfinder (readable in landscape). */
+    #armed { position: fixed; top: 54px; left: 12px; z-index: 3; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+    .hud-row { display: flex; align-items: center; gap: 8px; }
+    .hud-tag { font-size: 11px; letter-spacing: 0.09em; color: #d4d8db; background: rgba(0,0,0,0.55); padding: 5px 9px; border-radius: 7px; }
+    #slot { font-size: 30px; font-weight: 800; letter-spacing: 0.02em; padding: 4px 12px; border-radius: 10px; background: rgba(0,0,0,0.55); }
+    #slot.ok { color: #4ade80; } #slot.muted { color: #b9bdc1; }
+    #armed .badge { font-size: 14px; background: rgba(0,0,0,0.6); }
+    #bitrate { color: #d4d8db; font-size: 13px; background: rgba(0,0,0,0.5); padding: 3px 8px; border-radius: 6px; }
+
+    /* Debug log: tucked behind a small button so it never crowds the viewfinder. */
+    #logBtn { position: fixed; right: 10px; bottom: 10px; z-index: 5; width: 32px; height: 32px; padding: 0; border-radius: 50%; opacity: 0.4; font-weight: 700; }
+    #log { position: fixed; left: 8px; right: 8px; bottom: 50px; z-index: 5; margin: 0; padding: 10px; background: rgba(17,17,17,0.96);
+      border: 1px solid #222; border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 42vh; overflow: auto; }
+
     .rotate { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 12px; background: rgba(10,10,10,0.93); color: #fbbf24; font-size: 20px; font-weight: 700; text-align: center; }
     .rotate .ico { font-size: 56px; line-height: 1; }
   </style>
 </head>
 <body>
+  <video id="video" autoplay playsinline muted></video>
+
   <header>
     <h1>Camera</h1>
     <span id="rec" class="rec"><span class="dot"></span>REC</span>
@@ -46,41 +69,31 @@
     <span id="conn" class="badge muted">offline</span>
   </header>
 
-  <video id="video" autoplay playsinline muted></video>
   <div id="rotate" class="rotate hidden"><div class="ico">&#x21BB;</div>Rotate to landscape</div>
 
-  <div id="panel">
-    <!-- Join screen -->
-    <div id="join">
-      <div class="row">
-        <input id="name" placeholder="Phone name (e.g. Nicol's iPhone)" autocomplete="off" />
-      </div>
-      <div class="row">
-        <select id="facing">
-          <option value="environment" selected>Back camera</option>
-          <option value="user">Front camera</option>
-        </select>
-        <button id="joinBtn" class="primary">Join</button>
-      </div>
-      <div class="row">
-        <a href="setup.html" style="color:#9aa0a6;font-size:13px;text-decoration:none">First time on this phone? Set it up &amp; install the certificate &rarr;</a>
-      </div>
+  <!-- Pre-join: a centered card (no dead black video box) -->
+  <div id="join">
+    <div class="card">
+      <div class="card-title">Wireless Multicam</div>
+      <p class="card-sub">Use this phone as a camera. Enter a name and tap Join.</p>
+      <input id="name" placeholder="Phone name (e.g. Nicol's iPhone)" autocomplete="off" />
+      <select id="facing">
+        <option value="environment" selected>Back camera</option>
+        <option value="user">Front camera</option>
+      </select>
+      <button id="joinBtn" class="primary">Join</button>
+      <a href="setup.html" class="setup-link">First time on this phone? Set it up &amp; install the certificate &rarr;</a>
     </div>
-
-    <!-- Armed / live screen -->
-    <div id="armed" class="hidden">
-      <div class="row">
-        <span>Assigned to:</span>
-        <span id="slot" class="big-slot muted">—</span>
-      </div>
-      <div class="row">
-        <span>Status:</span><span id="status" class="badge muted">waiting for operator</span>
-        <span id="bitrate" class="muted"></span>
-      </div>
-    </div>
-
-    <pre id="log"></pre>
   </div>
+
+  <!-- Armed: status overlaid on the live viewfinder -->
+  <div id="armed" class="hidden">
+    <div class="hud-row"><span class="hud-tag">CAMERA</span><span id="slot" class="muted">—</span></div>
+    <div class="hud-row"><span id="status" class="badge muted">waiting for operator</span><span id="bitrate"></span></div>
+  </div>
+
+  <button id="logBtn" title="Show log" aria-label="Show log">i</button>
+  <pre id="log" class="hidden"></pre>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -220,6 +233,7 @@
       $('rotate').classList.toggle('hidden', !(armed && portraitMM.matches));
     }
     portraitMM.addEventListener('change', updateOrientation);
+    $('logBtn').addEventListener('click', () => $('log').classList.toggle('hidden'));
 
     function connectWS(name) {
       ws = new WebSocket(`wss://${location.host}/ws/phone`);
@@ -244,7 +258,7 @@
       } else if (msg.type === 'assigned') {
         assignedSlot = msg.slot;
         $('slot').textContent = assignedSlot ? (msg.label || assignedSlot) : '—';
-        $('slot').className = 'big-slot ' + (assignedSlot ? 'ok' : 'muted');
+        $('slot').className = assignedSlot ? 'ok' : 'muted';
         if (!assignedSlot && publishing) stopPublish();
         if (!publishing) setBadge($('status'), assignedSlot ? 'muted' : 'muted', assignedSlot ? 'standby' : 'waiting for operator');
         log(assignedSlot ? `Assigned to ${assignedSlot}.` : 'Unassigned.');
@@ -266,6 +280,7 @@
         try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch {}
         $('join').classList.add('hidden');
         $('armed').classList.remove('hidden');
+        document.body.classList.add('live');   // reveal the full-bleed viewfinder
         updateOrientation();
         initBattery();
         connectWS(name);

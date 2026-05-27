@@ -68,6 +68,8 @@ $miOpen = $menu.Items.Add('Open Operator Dashboard')
 $miOpen.add_Click({ Start-Process $script:operatorUrl })
 $miPhone = $menu.Items.Add('Open Phone Camera Page')
 $miPhone.add_Click({ Start-Process $script:phoneUrl })
+$miQr = $menu.Items.Add('Show Phone QR (scan to connect)')
+$miQr.add_Click({ Start-Process ($script:phoneUrl.TrimEnd('/') + '/connect.html') })
 $miUrls = $menu.Items.Add('Show URLs')
 $miUrls.add_Click({
   [System.Windows.Forms.MessageBox]::Show(

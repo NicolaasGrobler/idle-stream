@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scan to connect · Multicam</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0a0a0a; color: #e8e8e8;
+      font: 16px/1.45 -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+    .wrap { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 28px; text-align: center; }
+    h1 { font-size: clamp(22px, 4vw, 34px); margin: 0; font-weight: 800; }
+    p { color: #9aa0a6; margin: 0; font-size: clamp(14px, 2.2vw, 18px); }
+    .qr { background: #fff; padding: 16px; border-radius: 16px; line-height: 0; box-shadow: 0 24px 64px rgba(0,0,0,0.55); }
+    .qr img { width: min(60vmin, 380px); height: min(60vmin, 380px); display: block; image-rendering: pixelated; }
+    .url { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: clamp(14px, 2.4vw, 20px); color: #4ade80; }
+    .hint { color: #777; max-width: 36ch; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Scan to connect your phone</h1>
+    <p>Point your phone's camera at this code.</p>
+    <div class="qr" id="qr"></div>
+    <div class="url" id="url"></div>
+    <p class="hint">First time? The page walks you through trusting the certificate, then opens the camera.</p>
+  </div>
+  <script src="vendor/qrcode.js"></script>
+  <script>
+    var target = location.origin + '/setup.html';
+    document.getElementById('url').textContent = target;
+    try {
+      var qr = qrcode(0, 'M');
+      qr.addData(target);
+      qr.make();
+      document.getElementById('qr').innerHTML = qr.createImgTag(8, 0);
+    } catch (e) {
+      document.getElementById('qr').textContent = target;
+    }
+  </script>
+</body>
+</html>
