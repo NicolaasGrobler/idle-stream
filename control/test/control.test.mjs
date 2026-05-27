@@ -597,6 +597,42 @@ test('audio source: a mic path that records, links to a camera, and is never tak
   assert.ok(micEntry && micEntry.kind === 'audio' && micEntry.link === 'cam1');
 });
 
+test('addAudioSource can create + assign a connected device in one step', async () => {
+  const mtx = new StubMTX();
+  const svc = makeSvc(mtx);
+  const op = svc.connectOperator(new FakeWS());
+  const mWs = new FakeWS();
+  await svc.connectPhone(mWs).feed({ type: 'register', phoneId: 'pm', name: 'Mic', kind: 'audio' });
+  await op.feed({ type: 'addAudioSource', label: 'Boom', assign: 'pm' });
+  const mic = svc.state.cameras.find((c) => c.kind === 'audio');
+  assert.ok(mic && mic.id === 'mic1');
+  assert.equal(svc.state.phones.get('pm').slot, 'mic1');     // assigned in one step
+  assert.equal(mWs.last('assigned').slot, 'mic1');
+});
+
+test('monitorPublish/monitorStop drive one device without flipping global preview', async () => {
+  const mtx = new StubMTX();
+  const svc = makeSvc(mtx);
+  const op = svc.connectOperator(new FakeWS());
+  const mWs = new FakeWS();
+  await svc.connectPhone(mWs).feed({ type: 'register', phoneId: 'pm', name: 'Mic', kind: 'audio' });
+  await op.feed({ type: 'addAudioSource', label: 'Boom', assign: 'pm' });
+
+  await op.feed({ type: 'monitorPublish', phoneId: 'pm' });
+  assert.equal(svc.state.previewing, false);                  // global preview NOT flipped
+  assert.deepEqual(mWs.last('command'), { type: 'command', action: 'publish', slot: 'mic1', bitrate: 8_000_000 });
+
+  await op.feed({ type: 'monitorStop', phoneId: 'pm' });      // not previewing/recording -> stops it
+  assert.deepEqual(mWs.last('command'), { type: 'command', action: 'stop' });
+
+  // While recording, monitorStop must NOT yank the device.
+  await op.feed({ type: 'startRecording' });   // no live cams -> won't actually start; force flag
+  svc.state.recording = true;
+  const before = mWs.typed('command').length;
+  await op.feed({ type: 'monitorStop', phoneId: 'pm' });
+  assert.equal(mWs.typed('command').length, before);          // no new stop command sent
+});
+
 test('snapshot includes the previewing flag', async () => {
   const mtx = new StubMTX();
   const svc = makeSvc(mtx);

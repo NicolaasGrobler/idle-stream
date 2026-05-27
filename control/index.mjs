@@ -261,8 +261,27 @@ export function createService(mtx, opts = {}) {
       const link = msg.link && state.cameraIds().includes(msg.link) ? msg.link : null;
       state.cameras.push(makeCamera(id, label, null, 'audio', link));
       await mtx.addPath(id);
+      // Optionally assign a connected device to the new source in one step.
+      const pid = msg.assign;
+      if (pid && state.phones.has(pid)) {
+        state.phones.get(pid).slot = id;
+        sendPhone(pid, assignedMsg(id));
+        if (state.previewing || state.recording) sendPhone(pid, publishCmd(id));
+        persistAssignments();
+      }
       persistCameras();
       broadcastState();
+    } else if (t === 'monitorPublish') {
+      // Tell one device to publish for monitoring (Listen) WITHOUT flipping the
+      // global preview flag — so a Listen doesn't auto-publish every other device.
+      const p = state.phones.get(msg.phoneId);
+      if (p && p.slot) sendPhone(p.id, publishCmd(p.slot));
+    } else if (t === 'monitorStop') {
+      // Stop a monitor-only publish — but never yank a device the session needs.
+      if (!state.previewing && !state.recording) {
+        const p = state.phones.get(msg.phoneId);
+        if (p) sendPhone(p.id, { type: 'command', action: 'stop' });
+      }
     } else if (t === 'linkAudio') {
       const c = state.cameras.find((x) => x.id === msg.id && x.kind === 'audio');
       if (c) {

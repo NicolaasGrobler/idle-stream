@@ -316,33 +316,64 @@
       ws = new WebSocket(`wss://${location.host}/ws/operator`);
       ws.onopen = () => { wsDelay = 1000; setBadge($('conn'), 'ok', 'connected'); };
       ws.onclose = () => { setBadge($('conn'), 'bad', 'reconnecting…'); setTimeout(connectWS, wsDelay); wsDelay = Math.min(wsDelay * 2, 30000); };
-      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); renderGlobalBitrate(); syncGrid(); renderProgram(); renderSwitchLog(); } };
+      ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'state') { lastState = m; renderControl(); renderGlobalBitrate(); syncGrid(); renderProgram(); renderSwitchLog(); maybeAutoStopListen(); } };
     }
     const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
     // ---------- Mic monitor (listen to one audio source via WHEP audio) ----------
-    let micListening = null, micPc = null;
+    // Listen makes the mic's device publish on its own (monitorPublish — doesn't
+    // flip global preview), then subscribes to its WHEP audio, retrying until the
+    // path comes live. It auto-reverts if the source stops being live.
+    let micListening = null, micPc = null, micStartedPub = null, micRetry = 0, micListenStart = 0;
     const micAudioEl = (() => { const a = document.createElement('audio'); a.autoplay = true; document.body.appendChild(a); return a; })();
+    const ownerOf = (id) => (lastState.slots || {})[id] || null;
     function stopListen() {
+      clearTimeout(micRetry);
       if (micPc) { try { micPc.close(); } catch {} micPc = null; }
       micAudioEl.srcObject = null;
+      if (micStartedPub) { send({ type: 'monitorStop', phoneId: micStartedPub }); micStartedPub = null; }
       if (micListening) { micListening = null; renderControl(); }
     }
-    async function toggleListen(id) {
+    function toggleListen(id) {
       if (micListening === id) { stopListen(); return; }
       stopListen();
-      micListening = id; renderControl();
-      try {
-        const pc = new RTCPeerConnection({ iceServers: [] });
-        micPc = pc;
-        pc.addTransceiver('audio', { direction: 'recvonly' });
-        pc.ontrack = (e) => { micAudioEl.srcObject = e.streams[0]; micAudioEl.play().catch(() => {}); };
-        await pc.setLocalDescription(await pc.createOffer());
-        await waitIce(pc);
-        const res = await fetch(`/${id}/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
-        if (!res.ok) throw new Error('WHEP ' + res.status);
-        await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
-      } catch { stopListen(); }
+      const owner = ownerOf(id);
+      if (!owner) { showModal({ title: 'No device assigned', message: 'Assign a device to this audio source before you can listen.', confirmLabel: 'OK' }); return; }
+      micListening = id; micListenStart = Date.now(); renderControl();
+      const dev = (lastState.phones || []).find((p) => p.id === owner);
+      if (dev && !dev.publishing && !lastState.previewing && !lastState.recording) {
+        send({ type: 'monitorPublish', phoneId: owner }); micStartedPub = owner;
+      }
+      subscribeListen(id, 0);
+    }
+    function subscribeListen(id, attempt) {
+      if (micListening !== id) return;
+      (async () => {
+        let pc;
+        try {
+          pc = new RTCPeerConnection({ iceServers: [] }); micPc = pc;
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+          pc.ontrack = (e) => { micAudioEl.srcObject = e.streams[0]; micAudioEl.play().catch(() => {}); };
+          pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' && micListening === id) stopListen(); };
+          await pc.setLocalDescription(await pc.createOffer());
+          await waitIce(pc);
+          const res = await fetch(`/${id}/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
+          if (!res.ok) throw new Error('WHEP ' + res.status);
+          await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
+        } catch {
+          if (pc) { try { pc.close(); } catch {} if (micPc === pc) micPc = null; }
+          // Path not live yet (the device is still coming up) — retry briefly.
+          if (micListening === id && attempt < 12) micRetry = setTimeout(() => subscribeListen(id, attempt + 1), 700);
+          else stopListen();
+        }
+      })();
+    }
+    // Auto-revert the Listen state if the source stops being live (e.g. Stop
+    // Preview, or the device drops) — after a short startup grace.
+    function maybeAutoStopListen() {
+      if (!micListening) return;
+      const dev = (lastState.phones || []).find((p) => p.id === ownerOf(micListening));
+      if ((!dev || !dev.publishing) && Date.now() - micListenStart > 4000) stopListen();
     }
 
     // ---------- Control panel ----------
@@ -466,6 +497,15 @@
           onChange: (v) => { if (v) send({ type: 'assign', phoneId: p.id, slot: v }); else send({ type: 'unassign', phoneId: p.id }); },
         });
         div.appendChild(dd.el);
+        // Shortcut: a connected mic device with no slot can spin up its own audio
+        // source (create + assign) in one click.
+        if (p.kind === 'audio' && !offline && !p.slot) {
+          const mk = document.createElement('button');
+          mk.className = 'sm'; mk.textContent = '+ Create audio source';
+          mk.style.marginTop = '6px'; mk.style.width = '100%';
+          mk.addEventListener('click', () => send({ type: 'addAudioSource', label: p.name, assign: p.id }));
+          div.appendChild(mk);
+        }
         host.appendChild(div);
       }
 
