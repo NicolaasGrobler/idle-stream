@@ -4,22 +4,33 @@
 // persisted to disk by cameras.mjs. A "slot" is a camera id (e.g. cam1) — the
 // MediaMTX path a phone publishes to.
 
-// A camera: { id (MediaMTX path, e.g. "cam1"), label (display name, e.g. "Wide"),
-//   bitrate (per-camera publish-bitrate override in bps, or null to use the
-//   operator's global setting) }.
-export function makeCamera(id, label, bitrate = null) {
-  return { id, label, bitrate: typeof bitrate === 'number' ? bitrate : null };
+// A source (MediaMTX path the device publishes to). Two kinds:
+//   kind 'video' — a camera/screen; a takeable program angle with a grid tile.
+//   kind 'audio' — an external mic; recorded as its own clip, NOT takeable and no
+//                  video tile. `link` is the camera id it's routed to in the
+//                  export (or null = global/unlinked).
+//   id     MediaMTX path ("cam1" for video, "mic1" for audio)
+//   label  display name
+//   bitrate per-source publish-bitrate override (bps) or null = global default
+export function makeCamera(id, label, bitrate = null, kind = 'video', link = null) {
+  return {
+    id, label,
+    bitrate: typeof bitrate === 'number' ? bitrate : null,
+    kind: kind === 'audio' ? 'audio' : 'video',
+    link: kind === 'audio' ? (link || null) : null,
+  };
 }
 
 // A phone:
 //   id          persistent, supplied by the phone (localStorage)
 //   name
 //   slot        camera id, or null (unassigned)
+//   kind        capture kind it reports: 'camera' | 'screen' | 'audio'
 //   publishing  is its slot live in MediaMTX
 //   connected   WebSocket currently open (survives reconnects)
 //   battery     {level: 0-1, charging: bool} where reported (not iOS), else null
-export function makePhone(id, name) {
-  return { id, name, slot: null, publishing: false, connected: true, battery: null };
+export function makePhone(id, name, kind = 'camera') {
+  return { id, name, slot: null, kind, publishing: false, connected: true, battery: null };
 }
 
 // Default global publish bitrate (bps); the operator can change it and override
@@ -73,14 +84,27 @@ export class SessionState {
     return `cam${n}`;
   }
 
+  nextAudioId() {
+    const existing = new Set(this.cameraIds());
+    let n = 1;
+    while (existing.has(`mic${n}`)) n += 1;
+    return `mic${n}`;
+  }
+
+  isAudio(id) {
+    const c = this.cameras.find((x) => x.id === id);
+    return !!c && c.kind === 'audio';
+  }
+
   snapshot() {
     return {
-      cameras: this.cameras.map((c) => ({ id: c.id, label: c.label, bitrate: c.bitrate ?? null })),
+      cameras: this.cameras.map((c) => ({ id: c.id, label: c.label, bitrate: c.bitrate ?? null, kind: c.kind || 'video', link: c.link ?? null })),
       globalBitrate: this.globalBitrate,
       phones: [...this.phones.values()].map((p) => ({
         id: p.id,
         name: p.name,
         slot: p.slot,
+        kind: p.kind || 'camera',
         publishing: p.publishing,
         connected: p.connected,
         battery: p.battery,

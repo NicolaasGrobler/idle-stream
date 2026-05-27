@@ -560,6 +560,43 @@ test('bitrate: a per-camera override wins over global and clears back to it', as
   assert.deepEqual(aWs.last('bitrate'), { type: 'bitrate', bitrate: 10_000_000 });
 });
 
+test('audio source: a mic path that records, links to a camera, and is never takeable', async () => {
+  const mtx = new StubMTX();
+  const svc = makeSvc(mtx, { now: () => 1000 });
+  const op = svc.connectOperator(new FakeWS());
+
+  await op.feed({ type: 'addAudioSource', label: 'Boom' });
+  const mic = svc.state.cameras.find((c) => c.kind === 'audio');
+  assert.ok(mic && mic.id === 'mic1' && mic.label === 'Boom');
+  assert.ok(mtx.paths.has('mic1'));
+  assert.equal(svc.state.snapshot().cameras.find((c) => c.id === 'mic1').kind, 'audio');
+
+  await op.feed({ type: 'linkAudio', id: 'mic1', link: 'cam1' });
+  assert.equal(svc.state.cameras.find((c) => c.id === 'mic1').link, 'cam1');
+
+  // A camera device on cam1 and an audio device on mic1, both live.
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pa', name: 'A', kind: 'camera' });
+  await svc.connectPhone(new FakeWS()).feed({ type: 'register', phoneId: 'pm', name: 'M', kind: 'audio' });
+  await op.feed({ type: 'assign', phoneId: 'pa', slot: 'cam1' });
+  await op.feed({ type: 'assign', phoneId: 'pm', slot: 'mic1' });
+  assert.equal(svc.state.phones.get('pm').kind, 'audio');
+  assert.equal(svc.state.snapshot().phones.find((p) => p.id === 'pm').kind, 'audio');
+
+  mtx.ready = { cam1: true, mic1: true };
+  await op.feed({ type: 'startRecording' });
+  assert.ok(Object.prototype.hasOwnProperty.call(svc.state.cameraRecordStarted, 'mic1'));  // mic recorded too
+  assert.equal(mtx.records.mic1, true);
+
+  await op.feed({ type: 'switch', camId: 'mic1' });   // audio source -> not takeable
+  assert.equal(svc.state.switches.length, 0);
+  await op.feed({ type: 'switch', camId: 'cam1' });
+  assert.equal(svc.state.switches.length, 1);
+
+  await op.feed({ type: 'stopRecording' });
+  const micEntry = svc.sessions[0].cameras.find((c) => c.id === 'mic1');
+  assert.ok(micEntry && micEntry.kind === 'audio' && micEntry.link === 'cam1');
+});
+
 test('snapshot includes the previewing flag', async () => {
   const mtx = new StubMTX();
   const svc = makeSvc(mtx);

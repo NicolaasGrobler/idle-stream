@@ -124,12 +124,17 @@ export function createService(mtx, opts = {}) {
         stoppedAt: stopped,
         stoppedAtIso: isoOf(stopped),
         durationSec: round3(stopped - (state.recordingStartedAt || stopped)),
-        cameras: Object.entries(state.cameraRecordStarted).map(([cid, ts]) => ({
-          id: cid,
-          label: state.labelFor(cid) || cid,
-          recordStartedAt: ts,
-          recordStartedAtIso: isoOf(ts),
-        })),
+        cameras: Object.entries(state.cameraRecordStarted).map(([cid, ts]) => {
+          const c = state.cameras.find((x) => x.id === cid);
+          return {
+            id: cid,
+            label: state.labelFor(cid) || cid,
+            kind: c && c.kind === 'audio' ? 'audio' : 'video',
+            link: c ? c.link ?? null : null,
+            recordStartedAt: ts,
+            recordStartedAtIso: isoOf(ts),
+          };
+        }),
         switches: state.switches,
       });
     }
@@ -176,12 +181,14 @@ export function createService(mtx, opts = {}) {
         }
         phoneSockets.set(phoneId, ws);
         const name = String(msg.name ?? '').trim();
+        const kind = ['camera', 'screen', 'audio'].includes(msg.kind) ? msg.kind : 'camera';
         let p = state.phones.get(phoneId);
         if (p) {                                 // reconnect: revive the existing record
           p.connected = true;
+          p.kind = kind;
           if (name) p.name = name;
         } else {
-          p = makePhone(phoneId, name || `Phone ${phoneId}`);
+          p = makePhone(phoneId, name || `Phone ${phoneId}`, kind);
           state.phones.set(phoneId, p);
           // Restore a persisted assignment (e.g. after a control-service restart),
           // as long as the camera still exists and isn't already taken.
@@ -247,6 +254,22 @@ export function createService(mtx, opts = {}) {
       await mtx.addPath(camId);
       persistCameras();
       broadcastState();
+    } else if (t === 'addAudioSource') {
+      const n = state.cameras.filter((c) => c.kind === 'audio').length + 1;
+      const label = String(msg.label ?? '').trim() || `Mic ${n}`;
+      const id = state.nextAudioId();
+      const link = msg.link && state.cameraIds().includes(msg.link) ? msg.link : null;
+      state.cameras.push(makeCamera(id, label, null, 'audio', link));
+      await mtx.addPath(id);
+      persistCameras();
+      broadcastState();
+    } else if (t === 'linkAudio') {
+      const c = state.cameras.find((x) => x.id === msg.id && x.kind === 'audio');
+      if (c) {
+        c.link = msg.link && state.cameraIds().includes(msg.link) ? msg.link : null;
+        persistCameras();
+        broadcastState();
+      }
     } else if (t === 'renameCamera') {
       const cid = msg.id;
       const label = String(msg.label ?? '').trim();
@@ -391,8 +414,9 @@ export function createService(mtx, opts = {}) {
     } else if (t === 'switch') {
       const cam = msg.camId;
       // Only a camera actually being recorded this session can be taken — taking
-      // a camera with no footage would put a useless cut point in the log.
-      if (state.recording && Object.prototype.hasOwnProperty.call(state.cameraRecordStarted, cam)) {
+      // a camera with no footage would put a useless cut point in the log. Audio
+      // sources are never a program angle.
+      if (state.recording && !state.isAudio(cam) && Object.prototype.hasOwnProperty.call(state.cameraRecordStarted, cam)) {
         // ignore a repeat take of the camera already on program — keeps the log clean
         const last = state.switches[state.switches.length - 1];
         if (!last || last.camId !== cam) {

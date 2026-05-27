@@ -58,10 +58,13 @@
     .rotate { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 12px; background: rgba(10,10,10,0.93); color: #fbbf24; font-size: 20px; font-weight: 700; text-align: center; }
     .rotate .ico { font-size: 56px; line-height: 1; }
+    /* Audio-only mode: a centered mic glyph over the (pictureless) viewfinder. */
+    #audioInd { position: fixed; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; font-size: 90px; color: #2a2a2a; pointer-events: none; }
   </style>
 </head>
 <body>
   <video id="video" autoplay playsinline muted></video>
+  <div id="audioInd" class="hidden">&#x1F399;</div>
 
   <header>
     <h1>Camera</h1>
@@ -81,11 +84,13 @@
       <select id="source">
         <option value="camera" selected>Camera</option>
         <option value="screen">Screen share</option>
+        <option value="audio">Audio only (mic)</option>
       </select>
       <select id="facing">
         <option value="environment" selected>Back camera</option>
         <option value="user">Front camera</option>
       </select>
+      <select id="mic" class="hidden"><option value="">Default microphone</option></select>
       <button id="joinBtn" class="primary">Join</button>
       <a href="setup.html" class="setup-link">First time on this device? Set it up &amp; install the certificate &rarr;</a>
     </div>
@@ -131,28 +136,58 @@
     const screenSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
     (function initSourceSelect() {
       const src = $('source');
-      if (!screenSupported) { src.querySelector('option[value="screen"]').remove(); src.classList.add('hidden'); }
-      const sync = () => { $('facing').classList.toggle('hidden', src.value !== 'camera'); };
+      if (!screenSupported) src.querySelector('option[value="screen"]').remove();
+      const sync = () => {
+        $('facing').classList.toggle('hidden', src.value !== 'camera');
+        $('mic').classList.toggle('hidden', src.value !== 'audio');
+        if (src.value === 'audio') populateMics();
+      };
       src.addEventListener('change', sync); sync();
     })();
 
-    // ----- Acquire the capture source (camera or screen) -----
+    // List audio inputs so the operator can pick the right mic (the external/DJI
+    // mic usually isn't the OS default). Device labels need a permission grant,
+    // so request the mic once, then enumerate.
+    let micsListed = false;
+    async function populateMics() {
+      if (micsListed) return;
+      try {
+        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tmp.getTracks().forEach((t) => t.stop());
+      } catch { return; }   // denied — keep "Default microphone"
+      try {
+        const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+        const sel = $('mic');
+        sel.innerHTML = '<option value="">Default microphone</option>'
+          + devs.map((d, i) => `<option value="${d.deviceId}">${(d.label || ('Microphone ' + (i + 1))).replace(/[<>&]/g, '')}</option>`).join('');
+        micsListed = true;
+      } catch {}
+    }
+
+    // ----- Acquire the capture source (camera | screen | audio) -----
+    const RAW_AUDIO = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
     async function acquireSource() {
-      captureKind = $('source').value === 'screen' ? 'screen' : 'camera';
+      const v = $('source').value;
+      captureKind = v === 'screen' ? 'screen' : v === 'audio' ? 'audio' : 'camera';
       if (captureKind === 'screen') {
         // audio:true so the browser's share dialog offers a "share audio" checkbox;
         // if the user declines, the screen source is simply video-only.
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 30 } }, audio: true,
         });
-        // The browser's own "Stop sharing" ends the track — treat it as the source
-        // going away: stop publishing and let the operator see it drop.
-        const vt = stream.getVideoTracks()[0];
+        const vt = stream.getVideoTracks()[0];   // browser "Stop sharing" ends this
         if (vt) vt.addEventListener('ended', onScreenEnded);
+      } else if (captureKind === 'audio') {
+        // Audio-only external mic: no video track at all.
+        const deviceId = $('mic').value;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: deviceId ? { deviceId: { exact: deviceId }, ...RAW_AUDIO } : RAW_AUDIO,
+        });
       } else {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: $('facing').value, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          audio: RAW_AUDIO,
         });
       }
       $('video').srcObject = stream;
@@ -289,7 +324,7 @@
       ws.onopen = () => {
         reconnectDelay = 1000;
         setBadge($('conn'), 'ok', 'connected');
-        ws.send(JSON.stringify({ type: 'register', name, phoneId }));
+        ws.send(JSON.stringify({ type: 'register', name, phoneId, kind: captureKind }));
         sendStatus(publishing);   // also conveys current battery to the operator
       };
       ws.onclose = () => {
@@ -328,9 +363,11 @@
       $('joinBtn').disabled = true;
       try {
         await acquireSource();
-        const name = $('name').value.trim() || (captureKind === 'screen' ? 'Screen' : 'Phone');
-        $('hudtag').textContent = captureKind === 'screen' ? 'SCREEN' : 'CAMERA';
+        const name = $('name').value.trim() || ({ screen: 'Screen', audio: 'Mic', camera: 'Phone' }[captureKind]);
+        $('hudtag').textContent = { screen: 'SCREEN', audio: 'MIC', camera: 'CAMERA' }[captureKind];
         document.body.classList.toggle('screen', captureKind === 'screen');
+        document.body.classList.toggle('audio', captureKind === 'audio');
+        $('audioInd').classList.toggle('hidden', captureKind !== 'audio');
         try { await (navigator.wakeLock && navigator.wakeLock.request('screen')); } catch {}
         // Orientation lock only makes sense for a phone camera viewfinder.
         if (captureKind === 'camera') { try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch {} }

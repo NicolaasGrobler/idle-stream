@@ -46,6 +46,15 @@
     .camrow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
     .camrow .cid { font-size: 11px; color: #777; width: 42px; }
     .camrow input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
+    /* Audio-source rows: two lines (label, then link + listen) so nothing is cramped. */
+    .microw { padding: 8px; border: 1px solid #242424; border-radius: 8px; margin-bottom: 8px; }
+    .microw-top { display: flex; gap: 6px; align-items: center; }
+    .microw-top .cid { font-size: 11px; color: #777; width: 42px; }
+    .microw-top input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
+    .microw-bot { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+    .microw-bot .mtag { color: #777; font-size: 13px; flex: none; }
+    .microw-bot .link-mount { flex: 1; min-width: 0; }
+    .microw-bot .link-mount .dd { width: 100%; }
     .phone .name { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
     .phone.off { opacity: 0.6; }
     .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
@@ -196,6 +205,9 @@
       <h2>Cameras <span class="spacer"></span><button id="addCam" class="sm">+ Add</button></h2>
       <div id="cameras" class="card"></div>
 
+      <h2>Audio sources <span class="spacer"></span><button id="addMic" class="sm">+ Add</button></h2>
+      <div id="audioSources" class="card"></div>
+
       <h2>Connected devices</h2>
       <div id="phones"></div>
       <div id="noPhones" class="empty">No devices connected. Open the device page, enter a name, tap Join.</div>
@@ -294,15 +306,42 @@
     }
     const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
+    // ---------- Mic monitor (listen to one audio source via WHEP audio) ----------
+    let micListening = null, micPc = null;
+    const micAudioEl = (() => { const a = document.createElement('audio'); a.autoplay = true; document.body.appendChild(a); return a; })();
+    function stopListen() {
+      if (micPc) { try { micPc.close(); } catch {} micPc = null; }
+      micAudioEl.srcObject = null;
+      if (micListening) { micListening = null; renderControl(); }
+    }
+    async function toggleListen(id) {
+      if (micListening === id) { stopListen(); return; }
+      stopListen();
+      micListening = id; renderControl();
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        micPc = pc;
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        pc.ontrack = (e) => { micAudioEl.srcObject = e.streams[0]; micAudioEl.play().catch(() => {}); };
+        await pc.setLocalDescription(await pc.createOffer());
+        await waitIce(pc);
+        const res = await fetch(`/${id}/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
+        if (!res.ok) throw new Error('WHEP ' + res.status);
+        await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
+      } catch { stopListen(); }
+    }
+
     // ---------- Control panel ----------
     function renderControl() {
       if (sidePanelBusy) return;            // don't wipe an open dropdown / a field being typed in
       const cams = lastState.cameras || [];
+      const videoCams = cams.filter((c) => c.kind !== 'audio');
+      const audioCams = cams.filter((c) => c.kind === 'audio');
 
-      // Camera management
+      // Camera management (video sources only)
       const cbox = $('cameras');
-      cbox.innerHTML = cams.length ? '' : '<div class="empty">No cameras. Add one.</div>';
-      for (const c of cams) {
+      cbox.innerHTML = videoCams.length ? '' : '<div class="empty">No cameras. Add one.</div>';
+      for (const c of videoCams) {
         const row = document.createElement('div');
         row.className = 'camrow';
         row.innerHTML = `<span class="cid">${c.id}</span>
@@ -333,6 +372,50 @@
         cbox.appendChild(row);
       }
 
+      // Audio sources (external mics): rename, link to a camera, listen, remove.
+      const abox = $('audioSources');
+      abox.innerHTML = audioCams.length ? '' : '<div class="empty">No audio sources. Add a mic.</div>';
+      for (const c of audioCams) {
+        const owner = (lastState.slots || {})[c.id];
+        const dev = (lastState.phones || []).find((p) => p.id === owner);
+        const live = dev && dev.publishing;
+        const row = document.createElement('div');
+        row.className = 'microw';
+        row.innerHTML = `<div class="microw-top">
+            <span class="cid">${c.id}</span>
+            <input value="${escapeHtml(c.label)}" />
+            <button class="sm stop mic-rm" title="Remove">×</button>
+          </div>
+          <div class="microw-bot">
+            <span class="mtag" title="routed to">→</span>
+            <span class="link-mount"></span>
+            <button class="sm stop mic-listen" title="Listen to this mic">${micListening === c.id ? '⏹ Stop' : '🎧 Listen'}</button>
+            <span class="badge ${live ? 'ok' : 'muted'}" title="publishing status">${live ? 'live' : 'idle'}</span>
+          </div>`;
+        const input = row.querySelector('input');
+        const commit = () => { setBusy(false); const v = input.value.trim(); if (v && v !== c.label) send({ type: 'renameCamera', id: c.id, label: v }); };
+        input.addEventListener('focus', () => setBusy(true));
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+
+        // Link this mic to a camera (used by the export's per-section routing).
+        const linkOpts = [{ value: '', label: 'No camera' }].concat(videoCams.map((v) => ({ value: v.id, label: v.label })));
+        const linkDd = createDropdown({
+          value: c.link || '', opts: linkOpts, compact: true, placeholder: 'No camera', onOpenChange: setBusy,
+          onChange: (v) => send({ type: 'linkAudio', id: c.id, link: v || null }),
+        });
+        row.querySelector('.link-mount').appendChild(linkDd.el);
+
+        row.querySelector('.mic-listen').addEventListener('click', () => toggleListen(c.id));
+        row.querySelector('.mic-rm').addEventListener('click', async () => {
+          if (await showModal({ title: 'Remove audio source', message: `Remove "${c.label}" (${c.id})?`, confirmLabel: 'Remove', danger: true })) {
+            if (micListening === c.id) stopListen();
+            send({ type: 'removeCamera', id: c.id });
+          }
+        });
+        abox.appendChild(row);
+      }
+
       // Phone roster
       const phones = lastState.phones || [];
       $('noPhones').style.display = phones.length ? 'none' : 'block';
@@ -352,11 +435,14 @@
           const low = pct <= 20 && !p.battery.charging;
           batBadge = ` <span class="badge ${low ? 'bad' : 'muted'}">${pct}%${p.battery.charging ? ' ⚡' : ''}</span>`;
         }
-        div.innerHTML = `<div class="name">${escapeHtml(p.name)} ${statusBadge}${batBadge}`
+        const kindBadge = p.kind === 'audio' ? '<span class="badge muted">mic</span> ' : p.kind === 'screen' ? '<span class="badge muted">screen</span> ' : '';
+        div.innerHTML = `<div class="name">${escapeHtml(p.name)} ${kindBadge}${statusBadge}${batBadge}`
           + (offline ? '<span class="spacer"></span><button class="sm stop rmphone" title="Remove device">×</button>' : '')
           + '</div>';
         if (offline) div.querySelector('.rmphone').addEventListener('click', () => send({ type: 'removePhone', phoneId: p.id }));
-        const opts = [{ value: '', label: 'Unassigned' }].concat(cams.map((c) => {
+        // Audio devices assign to mic slots; camera/screen devices to camera slots.
+        const slotCams = p.kind === 'audio' ? audioCams : videoCams;
+        const opts = [{ value: '', label: 'Unassigned' }].concat(slotCams.map((c) => {
           const otherOwner = taken[c.id] && taken[c.id] !== p.id;
           return { value: c.id, label: c.label + (otherOwner ? ' (taken)' : ''), disabled: !!otherOwner };
         }));
@@ -390,6 +476,10 @@
     $('addCam').addEventListener('click', async () => {
       const label = await showModal({ title: 'Add camera', input: { placeholder: 'e.g. Balcony' }, confirmLabel: 'Add' });
       if (label) send({ type: 'addCamera', label });
+    });
+    $('addMic').addEventListener('click', async () => {
+      const label = await showModal({ title: 'Add audio source', input: { placeholder: 'e.g. DJI Mic A' }, confirmLabel: 'Add' });
+      if (label) send({ type: 'addAudioSource', label });
     });
     $('previewAll').addEventListener('click', () => send({ type: 'startPreview' }));
     $('stopAll').addEventListener('click', () => send({ type: 'stopPreview' }));
@@ -1054,13 +1144,20 @@
         const it = byName[c.id] || {};
         const tracks = it.tracks || [];
         const live = !!it.ready;
-        const hasVideo = tracks.some((t) => /h264/i.test(t));
         const hasAudio = tracks.some((t) => !VIDEO_CODEC.test(t));
         let cls, detail;
-        if (!live) { cls = 'bad'; detail = 'not publishing — Start Preview first'; }
-        else if (!hasVideo) { cls = 'bad'; detail = `video not H.264, recording would not be copy-only (${tracks.join(', ') || 'no tracks'})`; }
-        else if (!hasAudio) { cls = 'warn'; detail = 'live, H.264 — but no audio track'; }
-        else { cls = 'ok'; detail = `H.264 + audio (${tracks.join(', ')})`; }
+        if (c.kind === 'audio') {
+          // An audio source just needs to be live with an audio track (no video).
+          if (!live) { cls = 'bad'; detail = 'mic not publishing — Start Preview first'; }
+          else if (!hasAudio) { cls = 'bad'; detail = `no audio track (${tracks.join(', ') || 'no tracks'})`; }
+          else { cls = 'ok'; detail = `audio (${tracks.join(', ')})`; }
+        } else {
+          const hasVideo = tracks.some((t) => /h264/i.test(t));
+          if (!live) { cls = 'bad'; detail = 'not publishing — Start Preview first'; }
+          else if (!hasVideo) { cls = 'bad'; detail = `video not H.264, recording would not be copy-only (${tracks.join(', ') || 'no tracks'})`; }
+          else if (!hasAudio) { cls = 'warn'; detail = 'live, H.264 — but no audio track'; }
+          else { cls = 'ok'; detail = `H.264 + audio (${tracks.join(', ')})`; }
+        }
         rows.push({ cls, label: `${c.label} · ${c.id}`, detail });
       }
       if (pre) {
@@ -1155,7 +1252,7 @@
     renderGlobalBitrate();
 
     function syncGrid() {
-      const cams = lastState.cameras || [];
+      const cams = (lastState.cameras || []).filter((c) => c.kind !== 'audio');   // audio sources have no video tile
       const ids = new Set(cams.map((c) => c.id));
       for (const id of Object.keys(tiles)) {            // remove tiles for deleted cameras
         if (!ids.has(id)) { teardown(id); tiles[id].root.remove(); delete tiles[id]; }
@@ -1213,7 +1310,7 @@
       const tag = document.activeElement && document.activeElement.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key >= '1' && e.key <= '9') {
-        const cam = (lastState.cameras || [])[Number(e.key) - 1];
+        const cam = (lastState.cameras || []).filter((c) => c.kind !== 'audio')[Number(e.key) - 1];
         if (cam) { e.preventDefault(); takeProgram(cam.id); }
       }
     });

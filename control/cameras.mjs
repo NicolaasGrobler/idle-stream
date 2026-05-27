@@ -17,7 +17,7 @@ const DEFAULTS = [
 export function load() {
   try {
     const raw = JSON.parse(readFileSync(STORE, 'utf-8'));
-    const cams = raw.filter((c) => c && c.id).map((c) => makeCamera(c.id, c.label, c.bitrate));
+    const cams = raw.filter((c) => c && c.id).map((c) => makeCamera(c.id, c.label, c.bitrate, c.kind, c.link));
     if (cams.length) return cams;
   } catch {
     /* missing or malformed — fall through to defaults */
@@ -29,6 +29,6 @@ export function load() {
 
 export function save(cameras) {
   mkdirSync(dirname(STORE), { recursive: true });
-  const data = cameras.map((c) => ({ id: c.id, label: c.label, bitrate: c.bitrate ?? null }));
+  const data = cameras.map((c) => ({ id: c.id, label: c.label, bitrate: c.bitrate ?? null, kind: c.kind || 'video', link: c.link ?? null }));
   writeFileSync(STORE, JSON.stringify(data, null, 2), 'utf-8');
 }
