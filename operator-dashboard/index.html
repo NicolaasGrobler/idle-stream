@@ -118,6 +118,18 @@
     .clip-dl { text-decoration: none; flex: none; }
     .clip-del, .sess-del { flex: none; }
     .clip-del:hover, .sess-del:hover { border-color: #dc2626; color: #f87171; }
+    /* Unified action button (cards + clip rows): one height, icon + label. */
+    .act { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none;
+      height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid #333; background: #161616;
+      color: #e8e8e8; font: 600 13px/1 -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+      cursor: pointer; text-decoration: none; white-space: nowrap; }
+    .act:hover { background: #1d1d1d; }
+    .act:disabled { opacity: 0.5; cursor: default; }
+    .act svg { flex: none; }
+    .act.primary { background: #16a34a; border-color: #16a34a; color: #fff; }
+    .act.primary:hover { background: #15913f; }
+    .act.icononly { width: 34px; padding: 0; }
+    .act.danger:hover { border-color: #dc2626; color: #f87171; background: #1d1d1d; }
     /* Pre-flight checklist */
     .pf-verdict { display: inline-block; margin-bottom: 10px; font-size: 14px; }
     .pf-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #1c1c1c; }
@@ -181,6 +193,16 @@
     const $ = (id) => document.getElementById(id);
     const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
     const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    // Inline SVG icons (crisp, theme-colored via currentColor, fully offline).
+    const svg = (inner, filled) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="${filled ? 'currentColor' : 'none'}" stroke="${filled ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+    const ICON = {
+      play: svg('<polygon points="6 4 20 12 6 20 6 4"/>', true),
+      download: svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+      trash: svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>'),
+      refresh: svg('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
+      warn: svg('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+    };
 
     // While the operator is mid-interaction in the side panel (dropdown open or
     // typing a camera name), defer side-panel re-renders so we don't wipe it.
@@ -402,16 +424,16 @@
     function exportControl(sid, name, i, exports) {
       const ex = (exports || {})[sid];
       if (ex && ex.status === 'running') {
-        return `<button class="sm stop sess-export" data-idx="${i}" disabled>Exporting ${Math.round((ex.progress || 0) * 100)}%</button>`;
+        return `<button class="act sess-export" data-idx="${i}" disabled>Exporting ${Math.round((ex.progress || 0) * 100)}%</button>`;
       }
       if (ex && ex.ready) {
-        return `<a class="sm go" href="/api/export/download?id=${encodeURIComponent(sid)}" download="${escapeHtml(name || sid)}.mp4" style="text-decoration:none" title="Download rendered MP4">⬇ Download MP4</a>`
-          + `<button class="sm stop sess-export" data-idx="${i}" title="Re-export">↻</button>`;
+        return `<a class="act primary" href="/api/export/download?id=${encodeURIComponent(sid)}" download="${escapeHtml(name || sid)}.mp4" title="Download rendered MP4">${ICON.download} MP4</a>`
+          + `<button class="act icononly sess-export" data-idx="${i}" title="Re-export">${ICON.refresh}</button>`;
       }
       if (ex && ex.status === 'error') {
-        return `<button class="sm stop sess-export" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">⚠ Export failed — retry</button>`;
+        return `<button class="act danger sess-export" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">${ICON.warn} Retry</button>`;
       }
-      return `<button class="sm stop sess-export" data-idx="${i}" title="Render the program edit to one MP4">⤓ Export</button>`;
+      return `<button class="act sess-export" data-idx="${i}" title="Render the program edit to one MP4">${ICON.download} Export</button>`;
     }
 
     function renderSessionsTab(sessions, selected, exports) {
@@ -437,9 +459,9 @@
             <div class="sc-title">${escapeHtml(sessionTitle(s))}</div>
             <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'}</div>
             <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
-          </div><button class="go sess-preview" data-idx="${i}">▶ Preview</button>`
+          </div><button class="act primary sess-preview" data-idx="${i}">${ICON.play} Preview</button>`
           + exportControl(s.sessionId, s.name, i, exports)
-          + `<button class="sm stop sess-del" data-idx="${i}" title="Delete session">🗑</button></div>`;
+          + `<button class="act icononly danger sess-del" data-idx="${i}" title="Delete session">${ICON.trash}</button></div>`;
         }).reverse().join('');
       return sub + subtabs + (cards || '<div class="empty">No sessions for this camera.</div>');
     }
@@ -464,9 +486,9 @@
             <div class="clip-when">${escapeHtml(fmtClipWhen(f.name) || f.name)}</div>
             <div class="clip-file">${escapeHtml(f.name)}</div></div>
             <span class="clip-size">${fmtBytes(f.sizeBytes)}</span>
-            <button class="sm go clip-play" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}">▶ Play</button>
-            <a class="sm stop clip-dl" href="${url}" download title="Download">⤓</a>
-            <button class="sm stop clip-del" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}" title="Delete">🗑</button></div>`;
+            <button class="act clip-play" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}">${ICON.play} Play</button>
+            <a class="act icononly clip-dl" href="${url}" download title="Download">${ICON.download}</a>
+            <button class="act icononly danger clip-del" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}" title="Delete">${ICON.trash}</button></div>`;
         }).join('');
         return `<div class="cam-group">${head}${rows}</div>`;
       }).join('');
