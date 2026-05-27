@@ -108,7 +108,7 @@ The installer bundles everything (no internet needed on the target), installs to
 admin to install the local CA), then launch **Wireless Multicam Studio**.
 
 The launcher runs as a **system-tray icon** (no console window): right-click it
-for *Open Operator Dashboard*, *Open Phone Camera Page*, *Show URLs*, and
+for *Open Operator Dashboard*, *Open Device Page*, *Show URLs*, and
 *Stop & Quit*. The operator dashboard opens at **`https://studio.localhost:8444/`**
 — a trusted, friendly URL (`*.localhost` resolves to this machine automatically;
 the cert covers it). Trust `rootCA.pem` on each phone as above; phones use the
@@ -142,12 +142,13 @@ unverified.)
 
 ## Using it
 
-1. **On each phone:** open the phone URL, enter a name, pick front/back, tap
-   **Join**. The phone arms and waits. It nudges you to rotate to landscape and
-   (where the browser supports it — i.e. Android) reports its battery to the
-   dashboard.
-2. **On the dashboard:** add/rename cameras as needed, then assign each phone to a
-   camera slot (one phone per slot).
+1. **On each device:** open the device URL, enter a name, pick a **source**, tap
+   **Join**. The source is a **Camera** (a phone's front/back camera or a
+   laptop webcam) or **Screen share** (desktop browsers + Android Chrome, via the
+   browser's screen-picker — not available on iOS). The device arms and waits;
+   phone cameras nudge you to rotate to landscape and (on Android) report battery.
+2. **On the dashboard:** add/rename cameras as needed, then assign each device to a
+   camera slot (one device per slot).
 3. **Start Preview** — assigned phones begin streaming (not recording yet). Frame
    and check every angle in the live grid. The header **Bitrate** selector sets the
    global publish quality (4–12 Mbps); each camera can override it in the Cameras

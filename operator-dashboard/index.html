@@ -193,9 +193,9 @@
       <h2>Cameras <span class="spacer"></span><button id="addCam" class="sm">+ Add</button></h2>
       <div id="cameras" class="card"></div>
 
-      <h2>Connected phones</h2>
+      <h2>Connected devices</h2>
       <div id="phones"></div>
-      <div id="noPhones" class="empty">No phones connected. Open the phone page, enter a name, tap Join.</div>
+      <div id="noPhones" class="empty">No devices connected. Open the device page, enter a name, tap Join.</div>
 
       <h2>Switch log</h2>
       <div id="switchlogList" class="card"></div>
@@ -350,7 +350,7 @@
           batBadge = ` <span class="badge ${low ? 'bad' : 'muted'}">${pct}%${p.battery.charging ? ' ⚡' : ''}</span>`;
         }
         div.innerHTML = `<div class="name">${escapeHtml(p.name)} ${statusBadge}${batBadge}`
-          + (offline ? '<span class="spacer"></span><button class="sm stop rmphone" title="Remove phone">×</button>' : '')
+          + (offline ? '<span class="spacer"></span><button class="sm stop rmphone" title="Remove device">×</button>' : '')
           + '</div>';
         if (offline) div.querySelector('.rmphone').addEventListener('click', () => send({ type: 'removePhone', phoneId: p.id }));
         const opts = [{ value: '', label: 'Unassigned' }].concat(cams.map((c) => {
@@ -994,7 +994,7 @@
       const slots = lastState.slots || {};
       const cams = (lastState.cameras || []).filter((c) => slots[c.id]);   // only cameras with a phone assigned
       const rows = [];
-      if (!cams.length) rows.push({ cls: 'bad', label: 'Cameras', detail: 'No phone is assigned to a camera yet.' });
+      if (!cams.length) rows.push({ cls: 'bad', label: 'Cameras', detail: 'No device is assigned to a camera yet.' });
       for (const c of cams) {
         const it = byName[c.id] || {};
         const tracks = it.tracks || [];

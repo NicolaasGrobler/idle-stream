@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Multicam Camera</title>
+  <title>Multicam Device</title>
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <style>
@@ -15,6 +15,7 @@
     /* Live camera fills the screen (a viewfinder); hidden until joined. */
     #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; display: none; z-index: 0; }
     body.live #video { display: block; }
+    body.screen #video { object-fit: contain; }   /* show the whole shared screen, not a cropped fill */
     header { position: fixed; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: center; gap: 10px;
       padding: 12px 14px; background: linear-gradient(180deg, rgba(0,0,0,0.72), rgba(0,0,0,0)); }
     header h1 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
@@ -75,20 +76,24 @@
   <div id="join">
     <div class="card">
       <div class="card-title">Wireless Multicam</div>
-      <p class="card-sub">Use this phone as a camera. Enter a name and tap Join.</p>
-      <input id="name" placeholder="Phone name (e.g. Nicol's iPhone)" autocomplete="off" />
+      <p class="card-sub">Use this device as a camera or screen. Pick a source and tap Join.</p>
+      <input id="name" placeholder="Device name (e.g. Nicol's iPhone)" autocomplete="off" />
+      <select id="source">
+        <option value="camera" selected>Camera</option>
+        <option value="screen">Screen share</option>
+      </select>
       <select id="facing">
         <option value="environment" selected>Back camera</option>
         <option value="user">Front camera</option>
       </select>
       <button id="joinBtn" class="primary">Join</button>
-      <a href="setup.html" class="setup-link">First time on this phone? Set it up &amp; install the certificate &rarr;</a>
+      <a href="setup.html" class="setup-link">First time on this device? Set it up &amp; install the certificate &rarr;</a>
     </div>
   </div>
 
   <!-- Armed: status overlaid on the live viewfinder -->
   <div id="armed" class="hidden">
-    <div class="hud-row"><span class="hud-tag">CAMERA</span><span id="slot" class="muted">—</span></div>
+    <div class="hud-row"><span id="hudtag" class="hud-tag">CAMERA</span><span id="slot" class="muted">—</span></div>
     <div class="hud-row"><span id="status" class="badge muted">waiting for operator</span><span id="bitrate"></span></div>
   </div>
 
@@ -118,14 +123,46 @@
     let ws = null, stream = null, pc = null, statsTimer = null;
     let assignedSlot = null, publishing = false, reconnectDelay = 1000;
     let battery = null;   // {level 0-1, charging} where the Battery API exists (not iOS)
+    let captureKind = 'camera';   // 'camera' | 'screen'
 
-    // ----- Camera -----
-    async function acquireCamera() {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: $('facing').value, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      });
+    // Screen share needs getDisplayMedia, which iOS (all browsers — WebKit) lacks.
+    // Feature-detect: hide the option where it isn't available rather than assume
+    // device/OS. Toggle the facing selector to match the chosen source.
+    const screenSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+    (function initSourceSelect() {
+      const src = $('source');
+      if (!screenSupported) { src.querySelector('option[value="screen"]').remove(); src.classList.add('hidden'); }
+      const sync = () => { $('facing').classList.toggle('hidden', src.value !== 'camera'); };
+      src.addEventListener('change', sync); sync();
+    })();
+
+    // ----- Acquire the capture source (camera or screen) -----
+    async function acquireSource() {
+      captureKind = $('source').value === 'screen' ? 'screen' : 'camera';
+      if (captureKind === 'screen') {
+        // audio:true so the browser's share dialog offers a "share audio" checkbox;
+        // if the user declines, the screen source is simply video-only.
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: { ideal: 30 } }, audio: true,
+        });
+        // The browser's own "Stop sharing" ends the track — treat it as the source
+        // going away: stop publishing and let the operator see it drop.
+        const vt = stream.getVideoTracks()[0];
+        if (vt) vt.addEventListener('ended', onScreenEnded);
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: $('facing').value, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+      }
       $('video').srcObject = stream;
+    }
+
+    function onScreenEnded() {
+      log('Screen sharing stopped.');
+      stopPublish();
+      setBadge($('status'), 'bad', 'screen sharing stopped');
+      $('slot').classList.remove('ok');
     }
 
     // ----- WHIP publish -----
@@ -164,7 +201,7 @@
       if (pc && pc.connectionState === 'connected') return;   // already live
       if (pc) { try { pc.close(); } catch {} pc = null; }       // clear a stale/dead pc so reconnect can re-publish
       publishing = false;
-      if (!stream) { log('No camera; cannot publish.'); return; }
+      if (!stream) { log('No capture source; cannot publish.'); return; }
       setBadge($('status'), 'warn', 'connecting…');
       pc = new RTCPeerConnection({ iceServers: [] });
       pc.onconnectionstatechange = () => {
@@ -241,7 +278,8 @@
     const portraitMM = window.matchMedia('(orientation: portrait)');
     function updateOrientation() {
       const armed = !$('armed').classList.contains('hidden');
-      $('rotate').classList.toggle('hidden', !(armed && portraitMM.matches));
+      // Screen share has no "landscape" preference — only nudge phone cameras.
+      $('rotate').classList.toggle('hidden', !(armed && captureKind === 'camera' && portraitMM.matches));
     }
     portraitMM.addEventListener('change', updateOrientation);
     $('logBtn').addEventListener('click', () => $('log').classList.toggle('hidden'));
@@ -287,12 +325,15 @@
 
     // ----- Join -----
     $('joinBtn').addEventListener('click', async () => {
-      const name = $('name').value.trim() || 'Phone';
       $('joinBtn').disabled = true;
       try {
-        await acquireCamera();
+        await acquireSource();
+        const name = $('name').value.trim() || (captureKind === 'screen' ? 'Screen' : 'Phone');
+        $('hudtag').textContent = captureKind === 'screen' ? 'SCREEN' : 'CAMERA';
+        document.body.classList.toggle('screen', captureKind === 'screen');
         try { await (navigator.wakeLock && navigator.wakeLock.request('screen')); } catch {}
-        try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch {}
+        // Orientation lock only makes sense for a phone camera viewfinder.
+        if (captureKind === 'camera') { try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch {} }
         $('join').classList.add('hidden');
         $('armed').classList.remove('hidden');
         document.body.classList.add('live');   // reveal the full-bleed viewfinder
@@ -301,7 +342,7 @@
         connectWS(name);
       } catch (e) {
         $('joinBtn').disabled = false;
-        log('Camera error: ' + (e.message || e.name));
+        log('Capture error: ' + (e.message || e.name));
       }
     });
   </script>
