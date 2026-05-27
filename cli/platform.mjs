@@ -8,6 +8,12 @@ import { dirname, join, resolve } from 'node:path';
 // sets MULTICAM_ROOT to the working dir (source files aren't on disk there).
 export const ROOT = process.env.MULTICAM_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const isWin = process.platform === 'win32';
+
+// Friendly hostname for the operator dashboard on the host machine. `*.localhost`
+// auto-resolves to loopback in Chromium/Firefox (no hosts-file edit needed) and
+// is a secure context; we add it to the TLS cert SANs so it's trusted. Phones
+// still use the LAN IP (a loopback name would point at the phone itself).
+export const OPERATOR_HOST = 'studio.localhost';
 const exe = isWin ? '.exe' : '';
 
 export const paths = {

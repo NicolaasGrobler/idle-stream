@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { paths } from './platform.mjs';
+import { paths, OPERATOR_HOST } from './platform.mjs';
 
 function caRoot() {
   return execFileSync(paths.mkcert, ['-CAROOT'], { encoding: 'utf8' }).trim();
@@ -22,7 +22,7 @@ export function issueCert(ip) {
   mkdirSync(paths.certs, { recursive: true });
   execFileSync(
     paths.mkcert,
-    ['-cert-file', 'server-cert.pem', '-key-file', 'server-key.pem', ip, 'localhost', '127.0.0.1'],
+    ['-cert-file', 'server-cert.pem', '-key-file', 'server-key.pem', ip, 'localhost', '127.0.0.1', OPERATOR_HOST],
     { cwd: paths.certs, stdio: 'inherit' },
   );
   copyFileSync(join(caRoot(), 'rootCA.pem'), join(paths.certs, 'rootCA.pem'));

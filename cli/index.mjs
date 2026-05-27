@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, openSync } from 'node:fs';
 import { spawn, execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { paths, getLanIP, renderMediamtxConfig, parseIpFlag, isWin } from './platform.mjs';
+import { paths, getLanIP, renderMediamtxConfig, parseIpFlag, isWin, OPERATOR_HOST } from './platform.mjs';
 import { fetchTools } from './tools.mjs';
 import { makeCerts, issueCert, issuedCertIp, certExists } from './certs.mjs';
 
@@ -65,7 +65,7 @@ async function up(prefIp) {
   console.log('');
   console.log('Stack up.');
   console.log(`  Phones:   https://${ip}:8443/`);
-  console.log(`  Operator: https://localhost:8444/   (or https://${ip}:8444/)`);
+  console.log(`  Operator: https://${OPERATOR_HOST}:8444/   (or https://localhost:8444/)`);
   console.log('  Logs:     ./logs/*.log');
   console.log('  Stop:     multicam down');
 }
@@ -175,12 +175,12 @@ async function launch(prefIp) {
   console.log('  Wireless Multicam Studio — RUNNING');
   console.log('  ----------------------------------');
   console.log(`  Phones:   https://${ip}:8443/`);
-  console.log(`  Operator: https://localhost:8444/   (or https://${ip}:8444/)`);
+  console.log(`  Operator: https://${OPERATOR_HOST}:8444/   (or https://localhost:8444/)`);
   console.log('');
   console.log('  Opening the dashboard in your browser...');
   console.log("  Close this window (or press Ctrl+C) to stop the studio.");
   console.log('');
-  openBrowser('https://localhost:8444/');
+  openBrowser(`https://${OPERATOR_HOST}:8444/`);
 
   let stopping = false;
   const stop = async (code) => {
@@ -238,6 +238,13 @@ export async function runCli(args) {
       case 'start': await launch(prefIp); break;
       case 'up': await up(prefIp); break;
       case 'down': down(); break;
+      case 'urls': {
+        // Machine-readable URLs for the tray launcher (stdout only).
+        const ip = getLanIP(prefIp);
+        console.log(`phone=https://${ip}:8443/`);
+        console.log(`operator=https://${OPERATOR_HOST}:8444/`);
+        break;
+      }
       case 'help': case '--help': case '-h': usage(); break;
       default:
         if (!cmd && IS_SEA) { await launch(prefIp); break; }   // double-clicked exe -> launcher

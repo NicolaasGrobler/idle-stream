@@ -74,6 +74,8 @@ Source: "${toolsDir}\\mkcert.exe"; DestDir: "{app}\\tools"; Flags: ignoreversion
 Source: "${toolsDir}\\mediamtx.exe"; DestDir: "{app}\\tools"; Flags: ignoreversion
 Source: "${toolsDir}\\ffmpeg.exe"; DestDir: "{app}\\tools"; Flags: ignoreversion
 Source: "${toolsDir}\\ffprobe.exe"; DestDir: "{app}\\tools"; Flags: ignoreversion
+Source: "${join(ROOT, 'tray.ps1')}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "${ICO}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}\\certs"
@@ -86,13 +88,14 @@ Name: "{app}\\logs"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Icons]
-Name: "{autoprograms}\\Wireless Multicam Studio"; Filename: "{app}\\multicam.exe"; WorkingDir: "{app}"
-Name: "{autoprograms}\\Wireless Multicam Studio (first-time HTTPS setup)"; Filename: "{app}\\multicam.exe"; Parameters: "certs"; WorkingDir: "{app}"
-Name: "{autodesktop}\\Wireless Multicam Studio"; Filename: "{app}\\multicam.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+; Main shortcut launches the hidden PowerShell tray (no console window).
+Name: "{autoprograms}\\Wireless Multicam Studio"; Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"; Parameters: "-WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"
+Name: "{autoprograms}\\Wireless Multicam Studio (first-time HTTPS setup)"; Filename: "{app}\\multicam.exe"; Parameters: "certs"; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"
+Name: "{autodesktop}\\Wireless Multicam Studio"; Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"; Parameters: "-WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\\multicam.exe"; Parameters: "certs"; WorkingDir: "{app}"; Description: "Set up the HTTPS certificate now (recommended; one-time, needs admin)"; Flags: postinstall skipifsilent
-Filename: "{app}\\multicam.exe"; Description: "Launch Wireless Multicam Studio now"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"; Parameters: "-WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; WorkingDir: "{app}"; Description: "Launch Wireless Multicam Studio now"; Flags: postinstall nowait skipifsilent unchecked
 `;
 
 writeFileSync(ISS, iss);

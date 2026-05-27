@@ -144,6 +144,7 @@ idle-stream/
 ├── dev-server.mjs                # TLS static server + WHIP/WHEP/WS reverse proxy
 ├── cli/{index,platform,tools,certs}.mjs   # cross-platform launcher (npm run setup|certs|up|down)
 ├── build/{entry,build-sea,build-installer}.mjs   # SEA single-exe + Windows installer builds
+├── tray.ps1                      # hidden-PowerShell system-tray launcher (installed shortcuts use it)
 ├── package.json                  # npm scripts -> cli; "multicam" bin; ws dep + esbuild/postject dev deps
 ├── package-lock.json             # (node_modules/ gitignored; npm install restores)
 ├── setup/{fetch-tools,make-certs,lan-ip}.ps1   # Windows PowerShell equivalents of the CLI
@@ -211,11 +212,24 @@ Closing the window or pressing Ctrl+C (or `q`) stops every service — window op
 `down`). `multicam start` is the explicit form of the launcher.
 
 **Windows installer** (`build/build-installer.mjs`, `npm run build:installer`):
-wraps the exe + web assets + `mediamtx.yml` + the native tools into one Inno
-Setup installer (via the `innosetup-compiler` npm wrapper — no manual Inno Setup
-install). It's **fully offline** (~300 MB, bundles ffmpeg/mediamtx/mkcert),
-installs to `Documents\Wireless Multicam Studio`, creates the writable runtime
-dirs + Start Menu/desktop shortcuts, and offers a one-time `multicam certs` step.
+wraps the exe + `tray.ps1` + web assets + `mediamtx.yml` + the native tools into
+one Inno Setup installer (via the `innosetup-compiler` npm wrapper — no manual
+Inno Setup install). It's **fully offline** (~130 MB, bundles
+ffmpeg/mediamtx/mkcert), installs to `Documents\Wireless Multicam Studio`, creates
+the writable runtime dirs + Start Menu/desktop shortcuts, and offers a one-time
+`multicam certs` step.
+
+**System-tray launcher** (`tray.ps1`): the installed shortcuts launch a **hidden
+PowerShell** tray (`powershell -WindowStyle Hidden -File tray.ps1`) — so there's
+no console window. It drives `multicam up` on start and shows a tray icon whose
+menu has *Open Operator Dashboard*, *Open Phone Camera Page*, *Show URLs*,
+*First-time HTTPS setup* (`multicam certs`, self-elevates), and *Stop & Quit*
+(`multicam down`). It reads the URLs from `multicam urls`. This keeps the exe a
+plain console CLI (no GUI-subsystem hacks / native tray helper) while giving a
+window-free desktop experience. The operator dashboard URL is the friendly,
+trusted **`https://studio.localhost:8444/`** (`OPERATOR_HOST` is added to the
+cert SANs; `*.localhost` auto-resolves to loopback in Chromium/Firefox, no
+hosts-file edit). Phones still use the LAN-IP URL.
 `certs` **self-elevates** on the packaged exe (UAC via PowerShell `RunAs`) since
 installing the local CA needs admin; re-issuing the leaf cert on a network change
 does not, so the launcher handles that silently. Tool extraction uses the

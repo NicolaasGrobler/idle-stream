@@ -100,8 +100,14 @@ npm run build:installer  # -> dist/WirelessMulticamStudio-Setup.exe  (Windows, ~
 The installer bundles everything (no internet needed on the target), installs to
 `Documents\Wireless Multicam Studio`, and adds shortcuts. After installing, run
 **"Wireless Multicam Studio (first-time HTTPS setup)"** once (it prompts for
-admin to install the local CA), then double-click **Wireless Multicam Studio** to
-run. Trust `rootCA.pem` on each phone as above.
+admin to install the local CA), then launch **Wireless Multicam Studio**.
+
+The launcher runs as a **system-tray icon** (no console window): right-click it
+for *Open Operator Dashboard*, *Open Phone Camera Page*, *Show URLs*, and
+*Stop & Quit*. The operator dashboard opens at **`https://studio.localhost:8444/`**
+— a trusted, friendly URL (`*.localhost` resolves to this machine automatically;
+the cert covers it). Trust `rootCA.pem` on each phone as above; phones use the
+LAN-IP URL from *Show URLs*.
 
 ### Single binary (optional)
 
