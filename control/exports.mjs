@@ -103,6 +103,47 @@ export function planParts(session, clips) {
   return parts;
 }
 
+// Plan a crossfade chain over the rendered parts. Pure (no ffmpeg) so the offset
+// math is unit-tested. xfade/acrossfade overlap each consecutive pair by the fade
+// duration, so the program shrinks by (N-1)*fade. Returns null when crossfade
+// can't apply (fewer than 2 parts, or the shortest part is too short to fade) —
+// the caller then falls back to a plain hard-cut concat.
+//   offsets[k-1] = start time (in the accumulated stream) of the k-th transition.
+export function planXfade(parts, fade) {
+  if (!Array.isArray(parts) || parts.length < 2) return null;
+  const minDur = Math.min(...parts.map((p) => p.dur || 0));
+  const eff = Math.min(fade, round3(minDur - 0.05));
+  if (!(eff >= 0.1)) return null;                 // shortest part can't host the fade
+  const offsets = [];
+  let len = parts[0].dur;
+  for (let k = 1; k < parts.length; k++) {
+    offsets.push(round3(len - eff));
+    len = len + parts[k].dur - eff;
+  }
+  return { fade: round3(eff), offsets, total: round3(len) };
+}
+
+// ffmpeg args for the crossfade final pass: load every TS part and chain
+// xfade (video) + acrossfade (audio). Inputs are already format-normalized, so
+// the filtergraph is reliable; the result is re-encoded (filtergraph output
+// can't be stream-copied).
+function xfadeArgs(parts, segName, plan, out) {
+  const inputs = [];
+  for (let i = 0; i < parts.length; i++) inputs.push('-i', segName(i));
+  const vChain = [], aChain = [];
+  let vLabel = '[0:v]', aLabel = '[0:a]';
+  for (let k = 1; k < parts.length; k++) {
+    const vOut = `[v${k}]`, aOut = `[a${k}]`;
+    vChain.push(`${vLabel}[${k}:v]xfade=transition=fade:duration=${plan.fade}:offset=${plan.offsets[k - 1]}${vOut}`);
+    aChain.push(`${aLabel}[${k}:a]acrossfade=d=${plan.fade}:c1=tri:c2=tri${aOut}`);
+    vLabel = vOut; aLabel = aOut;
+  }
+  const filter = [...vChain, ...aChain].join(';');
+  return ['-y', ...inputs, '-filter_complex', filter, '-map', vLabel, '-map', aLabel,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', String(FPS),
+    '-c:a', 'aac', '-b:a', '160k', '-ar', String(AR), '-ac', '2', '-movflags', '+faststart', out];
+}
+
 function ffprobe(file) {
   return new Promise((resolve) => {
     execFile(ffprobePath(), ['-v', 'error', '-show_entries', 'format=duration', '-show_entries', 'stream=codec_type', '-of', 'json', file],
@@ -166,18 +207,20 @@ function run(bin, args, cwd) {
 }
 
 // Kick off (or return) an async export for a session. Progress is part-based.
-export function startExport(session) {
+// opts: { crossfade: bool, fade: seconds } — crossfade dissolves between program
+// segments (re-encode pass); otherwise the parts are hard-cut concatenated (copy).
+export function startExport(session, opts = {}) {
   const id = session && session.sessionId;
   if (!SAFE_ID.test(id || '')) throw new Error('bad session id');
   const existing = jobs.get(id);
   if (existing && existing.status === 'running') return existing;
   const job = { status: 'running', progress: 0, error: null, file: null };
   jobs.set(id, job);
-  runExport(session, job).catch((e) => { job.status = 'error'; job.error = String(e.message || e); });
+  runExport(session, job, opts).catch((e) => { job.status = 'error'; job.error = String(e.message || e); });
   return job;
 }
 
-async function runExport(session, job) {
+async function runExport(session, job, opts = {}) {
   mkdirSync(EXPORTS, { recursive: true });
   const work = join(EXPORTS, `.work-${session.sessionId}`);
   rmSync(work, { recursive: true, force: true });
@@ -187,17 +230,24 @@ async function runExport(session, job) {
     const parts = planParts(session, clips);
     if (!parts.length) throw new Error('nothing to export (no segments)');
     const ff = ffmpegPath();
+    const segName = (i) => `seg${String(i).padStart(4, '0')}.ts`;
     const listLines = [];
     for (let i = 0; i < parts.length; i++) {
-      const seg = `seg${String(i).padStart(4, '0')}.ts`;
+      const seg = segName(i);
       await run(ff, partArgs(parts[i], seg), work);
       listLines.push(`file '${seg}'`);
-      job.progress = round3((i + 1) / (parts.length + 1));   // leave headroom for concat
+      job.progress = round3((i + 1) / (parts.length + 1));   // leave headroom for the final pass
     }
-    writeFileSync(join(work, 'list.txt'), listLines.join('\n'));
     const out = join(EXPORTS, `${session.sessionId}.mp4`);
     rmSync(out, { force: true });
-    await run(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', '-bsf:a', 'aac_adtstoasc', out], work);
+    // Crossfade if requested AND it actually fits the parts; else hard-cut concat.
+    const plan = opts.crossfade ? planXfade(parts, Number(opts.fade) || 0.5) : null;
+    if (plan) {
+      await run(ff, xfadeArgs(parts, segName, plan, out), work);
+    } else {
+      writeFileSync(join(work, 'list.txt'), listLines.join('\n'));
+      await run(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', '-bsf:a', 'aac_adtstoasc', out], work);
+    }
     job.file = out;
     job.progress = 1;
     job.status = 'done';

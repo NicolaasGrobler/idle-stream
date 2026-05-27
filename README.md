@@ -176,7 +176,9 @@ unverified.)
 - **Rendered export (optional):** the dashboard can render any session's switch
   log into one finished MP4 (`exports/<session>.mp4`) — the program edit cut from
   the per-angle clips, re-encoded to 1080p30 H.264 + AAC, with black + silence
-  filling any missing footage. The lossless per-angle clips remain the masters.
+  filling any missing footage. The export dialog offers optional **crossfade
+  transitions** (0.3/0.5/1.0s dissolves between angles); default is clean hard
+  cuts. The lossless per-angle clips remain the masters.
 
 The switch log records the operator's *intent* — it does not produce a live
 switched output. (Live switched streaming is intentionally out of scope; see

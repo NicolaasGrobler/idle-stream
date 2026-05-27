@@ -143,9 +143,12 @@
     .player:fullscreen { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; }
     .player:fullscreen .player-stage { flex: 1; aspect-ratio: auto; min-height: 0; }
     .player-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
-    .player-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: none; }
-    .player-stage video.active { display: block; }
-    .player-black { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #666; font-size: 13px; text-align: center; padding: 0 16px; }
+    /* Video layers cross-fade by opacity (an approximate dissolve at takes). */
+    .player-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; opacity: 0; transition: opacity var(--xf, 0.5s) linear; }
+    .player-stage video.active { opacity: 1; }
+    .player-stage.no-anim video, .player-stage.no-anim .player-black { transition: none; }
+    .player-black { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #666; font-size: 13px; text-align: center; padding: 0 16px; opacity: 0; transition: opacity var(--xf, 0.5s) linear; }
+    .player-black.show { opacity: 1; }
     .player-camlabel { position: absolute; top: 8px; left: 10px; padding: 2px 8px; background: rgba(0,0,0,0.6); border-radius: 6px; font-weight: 600; font-size: 13px; z-index: 3; display: none; }
     .player-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
     .player-time { font-variant-numeric: tabular-nums; color: #bbb; font-size: 13px; flex: none; }
@@ -446,6 +449,44 @@
       return `${mon} ${+m[3]}, ${m[4]}:${m[5]}:${m[6]}`;
     };
 
+    // Export options modal: hard cuts (default) or crossfade dissolves with a
+    // chosen duration. Resolves to {crossfade, fade} or null (cancel).
+    function chooseExportOptions() {
+      return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `<div class="modal">
+          <h3>Export session</h3>
+          <label style="display:flex;align-items:center;gap:8px;margin:4px 0 2px;cursor:pointer">
+            <input type="checkbox" class="xf-on" style="width:16px;height:16px;accent-color:#16a34a" /> Crossfade transitions
+          </label>
+          <p class="modal-msg" style="margin:0 0 10px">Off = clean hard cuts (fast). On = dissolve between angles (re-encode).</p>
+          <div class="xf-dur hidden" style="display:flex;align-items:center;gap:8px;margin:0 0 14px;color:#bbb;font-size:14px">Fade <span class="xf-mount"></span></div>
+          <div class="modal-actions">
+            <button class="stop modal-cancel">Cancel</button>
+            <button class="go modal-ok">Render</button>
+          </div></div>`;
+        document.body.appendChild(overlay);
+        const cb = overlay.querySelector('.xf-on');
+        const durRow = overlay.querySelector('.xf-dur');
+        let fade = '0.5';
+        const dd = createDropdown({
+          value: '0.5', compact: true,
+          opts: [{ value: '0.3', label: '0.3s' }, { value: '0.5', label: '0.5s' }, { value: '1.0', label: '1.0s' }],
+          onChange: (v) => { fade = v; },
+        });
+        dd.el.style.width = '84px';
+        overlay.querySelector('.xf-mount').appendChild(dd.el);
+        cb.addEventListener('change', () => durRow.classList.toggle('hidden', !cb.checked));
+        const done = (val) => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(val); };
+        overlay.querySelector('.modal-ok').addEventListener('click', () => done({ crossfade: cb.checked, fade: Number(fade) }));
+        overlay.querySelector('.modal-cancel').addEventListener('click', () => done(null));
+        overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) done(null); });
+        function onKey(e) { if (e.key === 'Escape') done(null); }
+        document.addEventListener('keydown', onKey, true);
+      });
+    }
+
     // Per-session export control (button / progress / download), driven by the
     // /api/export job map. `i` is the index into the full sessions array.
     function exportControl(sid, name, i, exports) {
@@ -563,9 +604,12 @@
           body.querySelectorAll('.sess-export').forEach((b) =>
             b.addEventListener('click', async () => {
               const sid = data.sess[Number(b.dataset.idx)].sessionId;
+              const opt = await chooseExportOptions();
+              if (!opt) return;
               b.disabled = true; b.textContent = 'Starting…';
               try {
-                const res = await fetch(`/api/export?id=${encodeURIComponent(sid)}`, { method: 'POST' });
+                const qs = `id=${encodeURIComponent(sid)}` + (opt.crossfade ? `&crossfade=1&fade=${opt.fade}` : '');
+                const res = await fetch(`/api/export?${qs}`, { method: 'POST' });
                 if (!res.ok) {
                   const msg = await res.json().then((j) => j.error).catch(() => `HTTP ${res.status}`);
                   throw new Error(msg || `HTTP ${res.status}`);
@@ -852,22 +896,26 @@
         return vids[seg.camId] ? `${labelFor(seg.camId)} — footage ended` : `no footage for ${labelFor(seg.camId)}`;
       }
 
-      function showActive(id) {
+      // animate=true cross-dissolves (opacity transition); false flips instantly
+      // (used for seeks/scrubs, where a dissolve would smear).
+      function showActive(id, animate = false) {
+        if (!animate) stage.classList.add('no-anim');
         for (const [vid, v] of Object.entries(vids)) {
           const on = vid === id; v.classList.toggle('active', on); v.muted = !on; if (!on) v.pause();
         }
-        if (id && vids[id]) { camLabel.textContent = cams[id].label; camLabel.style.display = 'block'; black.style.display = 'none'; }
+        if (id && vids[id]) { camLabel.textContent = cams[id].label; camLabel.style.display = 'block'; black.classList.remove('show'); }
         else {
-          camLabel.style.display = 'none'; black.style.display = 'flex';
+          camLabel.style.display = 'none'; black.classList.add('show');
           black.textContent = blackTextFor(sessionTime);
         }
+        if (!animate) { void stage.offsetWidth; stage.classList.remove('no-anim'); }   // commit instant state, then re-enable transitions
       }
-      function setActiveFor(t) {
+      function setActiveFor(t, animate = false) {
         const seg = segAt(t);
         const id = (seg.camId && vids[seg.camId] && clipCovers(seg.camId, t)) ? seg.camId : null;
         if (id !== activeId) {
           activeId = id;
-          showActive(id);
+          showActive(id, animate);
           if (id) { try { vids[id].currentTime = Math.max(0, t - cams[id].delay); } catch {} if (playing) vids[id].play().catch(() => {}); }
         } else if (!id) {
           black.textContent = blackTextFor(t);
@@ -883,7 +931,7 @@
         else sessionTime += (ms - lastMs) / 1000;     // advance through black/missing footage
         lastMs = ms;
         if (sessionTime >= dur) { sessionTime = dur; setActiveFor(dur); pause(); ui(); return; }
-        setActiveFor(sessionTime);   // also refreshes the buffering spinner
+        setActiveFor(sessionTime, true);   // animate take-boundary dissolves; also refreshes the spinner
         ui();
         raf = requestAnimationFrame(tick);
       }

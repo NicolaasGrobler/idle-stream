@@ -556,7 +556,9 @@ function handleHttp(svc, req, res) {
     const session = switchesStore.loadSessions().find((s) => s.sessionId === id);
     if (!session) { sendJson(res, 404, { error: 'session not found' }); return; }
     try {
-      const job = exportsStore.startExport(session);
+      const crossfade = ['1', 'true', 'yes'].includes((url.searchParams.get('crossfade') || '').toLowerCase());
+      const fade = parseFloat(url.searchParams.get('fade')) || 0.5;
+      const job = exportsStore.startExport(session, { crossfade, fade });
       sendJson(res, 202, { status: job.status, progress: job.progress, error: job.error || null });
     } catch (e) {
       sendJson(res, 400, { error: String(e.message || e) });

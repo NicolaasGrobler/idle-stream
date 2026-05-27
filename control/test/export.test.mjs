@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planSegments, planParts, fileForCam } from '../exports.mjs';
+import { planSegments, planParts, fileForCam, planXfade } from '../exports.mjs';
 
 test('planSegments: no switches -> one segment on the first camera', () => {
   const s = { durationSec: 10, cameras: [{ id: 'cam1' }, { id: 'cam2' }], switches: [] };
@@ -57,6 +57,23 @@ test('planParts: a late-joining camera gets a black head', () => {
 test('planParts: a camera with no clip -> black for the whole segment', () => {
   const s = { startedAt: 1000, durationSec: 8, cameras: [{ id: 'cam1', recordStartedAt: 1000 }], switches: [{ offset: 0, camId: 'cam1' }] };
   assert.deepEqual(planParts(s, {}), [{ type: 'black', dur: 8 }]);
+});
+
+test('planXfade: offsets overlap each pair by the fade; total shrinks by (N-1)*fade', () => {
+  const parts = [{ dur: 5 }, { dur: 4 }, { dur: 6 }];
+  const p = planXfade(parts, 0.5);
+  assert.equal(p.fade, 0.5);
+  // L0=5 -> O1=4.5; L1=5+4-0.5=8.5 -> O2=8.0; L2=8.5+6-0.5=14
+  assert.deepEqual(p.offsets, [4.5, 8.0]);
+  assert.equal(p.total, 14);                       // 15 raw - 2*0.5
+});
+
+test('planXfade: clamps the fade to the shortest part, and bails when too short', () => {
+  // Shortest part 0.4s: fade clamped to 0.4-0.05=0.35 even though 0.5 was asked.
+  assert.equal(planXfade([{ dur: 3 }, { dur: 0.4 }, { dur: 3 }], 0.5).fade, 0.35);
+  // A part shorter than the 0.1 floor -> crossfade can't apply (caller hard-cuts).
+  assert.equal(planXfade([{ dur: 3 }, { dur: 0.12 }, { dur: 3 }], 0.5), null);
+  assert.equal(planXfade([{ dur: 5 }], 0.5), null);            // single part -> no transition
 });
 
 test('fileForCam: picks the latest clip inside the session mtime window', () => {
