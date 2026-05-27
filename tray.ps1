@@ -5,7 +5,12 @@
 # It starts the studio in the background (no console window), shows a tray icon,
 # and exposes the URLs + Stop from the icon's right-click menu. multicam.exe is
 # the engine; this script just drives `up` / `down` / `urls` / `certs`.
-$ErrorActionPreference = 'Stop'
+#
+# Keep the default 'Continue' error action: multicam writes informational notices
+# (e.g. "Multiple LAN IPs found") to stderr, and under 'Stop' PowerShell 5.1 turns
+# native stderr into a TERMINATING error — which would abort startup. Native
+# command stderr is also redirected to $null at each call site below.
+$ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -41,7 +46,7 @@ function Refresh-Urls {
 
 function Start-Stack {
   Refresh-Urls
-  & $Exe up | Out-Null
+  & $Exe up 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) {
     $script:running = $true
     $notify.Text = "Wireless Multicam Studio — running`n$script:operatorUrl"
@@ -53,7 +58,7 @@ function Start-Stack {
 }
 
 function Stop-Stack {
-  & $Exe down | Out-Null
+  & $Exe down 2>$null | Out-Null
   $script:running = $false
 }
 
@@ -72,8 +77,8 @@ $miUrls.add_Click({
 [void]$menu.Items.Add('-')
 $miCert = $menu.Items.Add('First-time HTTPS setup')
 $miCert.add_Click({
-  & $Exe certs | Out-Null     # self-elevates (UAC) on the packaged exe
-  Start-Stack                 # then bring the studio up
+  & $Exe certs 2>$null | Out-Null   # self-elevates (UAC) on the packaged exe
+  Start-Stack                       # then bring the studio up
 })
 [void]$menu.Items.Add('-')
 $miQuit = $menu.Items.Add('Stop && Quit')
