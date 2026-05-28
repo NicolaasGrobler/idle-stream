@@ -169,7 +169,7 @@ export function planXfade(parts, fade) {
 // xfade (video) + acrossfade (audio). Inputs are already format-normalized, so
 // the filtergraph is reliable; the result is re-encoded (filtergraph output
 // can't be stream-copied).
-function xfadeArgs(parts, segName, plan, out) {
+function xfadeArgs(parts, segName, plan, out, vcodec) {
   const inputs = [];
   for (let i = 0; i < parts.length; i++) inputs.push('-i', segName(i));
   const vChain = [], aChain = [];
@@ -181,9 +181,7 @@ function xfadeArgs(parts, segName, plan, out) {
     vLabel = vOut; aLabel = aOut;
   }
   const filter = [...vChain, ...aChain].join(';');
-  return ['-y', ...inputs, '-filter_complex', filter, '-map', vLabel, '-map', aLabel,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', String(FPS),
-    '-c:a', 'aac', '-b:a', '160k', '-ar', String(AR), '-ac', '2', '-movflags', '+faststart', out];
+  return ['-y', ...inputs, '-filter_complex', filter, '-map', vLabel, '-map', aLabel, ...encForMp4(vcodec), out];
 }
 
 function ffprobe(file) {
@@ -216,13 +214,62 @@ async function buildClips(session) {
   return clips;
 }
 
-// Identical encode params across every part so the TS segments concat-copy.
-const ENC = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
-  '-r', String(FPS), '-c:a', 'aac', '-b:a', '160k', '-ar', String(AR), '-ac', '2',
-  '-video_track_timescale', '90000', '-f', 'mpegts'];
+// Per-encoder video flags (quality knobs only — the rest of the encode is shared).
+// Order is preference: hardware first, libx264 as a guaranteed fallback.
+function vEnc(name) {
+  switch (name) {
+    case 'h264_nvenc':        return ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0'];
+    case 'h264_qsv':          return ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', '22'];
+    case 'h264_amf':          return ['-c:v', 'h264_amf', '-quality', 'balanced', '-rc', 'cqp', '-qp_i', '22', '-qp_p', '22'];
+    case 'h264_videotoolbox': return ['-c:v', 'h264_videotoolbox', '-q:v', '55'];
+    default:                  return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20'];
+  }
+}
+const COMMON_VIDEO = ['-pix_fmt', 'yuv420p', '-r', String(FPS)];
+const COMMON_AUDIO = ['-c:a', 'aac', '-b:a', '160k', '-ar', String(AR), '-ac', '2'];
+const TS_TAIL = ['-video_track_timescale', '90000', '-f', 'mpegts'];
+const MP4_TAIL = ['-movflags', '+faststart'];
+const encForTs = (vc) => [...vEnc(vc), ...COMMON_VIDEO, ...COMMON_AUDIO, ...TS_TAIL];
+const encForMp4 = (vc) => [...vEnc(vc), ...COMMON_VIDEO, ...COMMON_AUDIO, ...MP4_TAIL];
+
+// Probe the bundled ffmpeg for the fastest working H.264 encoder. Hardware
+// encoders are listed in ffmpeg builds even where the GPU isn't present, so we
+// run a 0.2s test encode on each candidate and pick the first that exits 0.
+// Result is cached for the process lifetime. MULTICAM_ENCODER=libx264 (or any
+// specific encoder name) skips detection and forces that choice.
+let _vcodecPromise = null;
+export function detectVideoEncoder() {
+  if (_vcodecPromise) return _vcodecPromise;
+  _vcodecPromise = (async () => {
+    const override = process.env.MULTICAM_ENCODER;
+    if (override && override !== 'auto') {
+      console.log(`[exports] encoder (override): ${override}`);
+      return override;
+    }
+    const ff = ffmpegPath();
+    const candidates = process.platform === 'darwin'
+      ? ['h264_videotoolbox', 'h264_nvenc']
+      : ['h264_nvenc', 'h264_qsv', 'h264_amf'];
+    for (const enc of candidates) {
+      if (await testEncoder(ff, enc)) { console.log(`[exports] hardware encoder: ${enc}`); return enc; }
+    }
+    console.log('[exports] software encoder: libx264');
+    return 'libx264';
+  })();
+  return _vcodecPromise;
+}
+function testEncoder(ff, enc) {
+  return new Promise((resolve) => {
+    const p = spawn(ff, ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x240:r=30:d=0.2', '-c:v', enc, '-pix_fmt', 'yuv420p', '-f', 'null', '-'], { windowsHide: true });
+    p.stderr.on('data', () => {});
+    p.on('error', () => resolve(false));
+    p.on('close', (code) => resolve(code === 0));
+  });
+}
 const VF = `scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease,pad=${OUT_W}:${OUT_H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS}`;
 
-function partArgs(part, out) {
+function partArgs(part, out, vcodec) {
+  const ENC = encForTs(vcodec);
   // ----- simple path (no audio routing): byte-identical to before, concat-copies -----
   if (!part.audio) {
     if (part.type === 'black') {
@@ -304,6 +351,7 @@ async function runExport(session, job, opts = {}) {
   rmSync(work, { recursive: true, force: true });
   mkdirSync(work, { recursive: true });
   try {
+    const vcodec = await detectVideoEncoder();   // hardware H.264 if available, else libx264 — cached
     const clips = await buildClips(session);
     const parts = planParts(session, clips);
     if (!parts.length) throw new Error('nothing to export (no segments)');
@@ -312,7 +360,7 @@ async function runExport(session, job, opts = {}) {
     const listLines = [];
     for (let i = 0; i < parts.length; i++) {
       const seg = segName(i);
-      await run(ff, partArgs(parts[i], seg), work);
+      await run(ff, partArgs(parts[i], seg, vcodec), work);
       listLines.push(`file '${seg}'`);
       job.progress = round3((i + 1) / (parts.length + 1));   // leave headroom for the final pass
     }
@@ -321,7 +369,7 @@ async function runExport(session, job, opts = {}) {
     // Crossfade if requested AND it actually fits the parts; else hard-cut concat.
     const plan = opts.crossfade ? planXfade(parts, Number(opts.fade) || 0.5) : null;
     if (plan) {
-      await run(ff, xfadeArgs(parts, segName, plan, out), work);
+      await run(ff, xfadeArgs(parts, segName, plan, out, vcodec), work);
     } else {
       writeFileSync(join(work, 'list.txt'), listLines.join('\n'));
       await run(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', '-bsf:a', 'aac_adtstoasc', out], work);
