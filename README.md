@@ -101,19 +101,26 @@ a specific address: `npm run up -- --ip 10.0.0.5`.
 
 ### Windows installer (optional)
 
-For a no-Node, double-click experience, build a Windows installer that lays
-down a ready-to-run folder (launcher + tools + assets + writable dirs), Start
-Menu / desktop shortcuts, and a one-time HTTPS-cert setup step:
+For a no-Node, double-click experience, grab **`WirelessMulticamStudio-Setup.exe`**
+from the latest [GitHub Release](https://github.com/openidle-dev/idle-stream/releases/latest).
+It's built in CI on every `v*` tag and ships everything offline (launcher +
+tools + assets + writable dirs), with Start Menu / desktop shortcuts and a
+one-time HTTPS-cert setup step.
+
+> The installer is currently **unsigned**, so Windows SmartScreen will warn
+> on first run — click *More info* → *Run anyway*.
+
+Prefer to build it yourself? You'll need the native tools first:
 
 ```bash
 npm run setup            # once: make sure tools/ has mkcert + mediamtx + ffmpeg
 npm run build:installer  # -> dist/WirelessMulticamStudio-Setup.exe  (Windows, ~300 MB, fully offline)
 ```
 
-The installer bundles everything (no internet needed on the target), installs
-to `Documents\Wireless Multicam Studio`, and adds shortcuts. After installing,
-run **"Wireless Multicam Studio (first-time HTTPS setup)"** once (it prompts
-for admin to install the local CA), then launch **Wireless Multicam Studio**.
+The installer installs to `Documents\Wireless Multicam Studio` and adds
+shortcuts. After installing, run **"Wireless Multicam Studio (first-time HTTPS
+setup)"** once (it prompts for admin to install the local CA), then launch
+**Wireless Multicam Studio**.
 
 The launcher runs as a **system-tray icon** (no console window):
 
