@@ -96,6 +96,25 @@ Name: "{autodesktop}\\Wireless Multicam Studio"; Filename: "{sys}\\WindowsPowerS
 [Run]
 Filename: "{app}\\multicam.exe"; Parameters: "certs"; WorkingDir: "{app}"; Description: "Set up the HTTPS certificate now (recommended; one-time, needs admin)"; Flags: postinstall skipifsilent runhidden
 Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"; Parameters: "-WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; WorkingDir: "{app}"; Description: "Launch Wireless Multicam Studio now"; Flags: postinstall nowait skipifsilent unchecked
+
+[Code]
+{ A running studio holds locks on multicam.exe and the tools. Inno's Restart
+  Manager can't end console-subsystem apps gracefully (no WM_QUERYENDSESSION
+  pump), so on upgrade the user sees "applications using files" with a failing
+  auto-close. Pre-empt it by running 'multicam down' here, before Inno scans. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  ExePath: String;
+begin
+  Result := '';
+  ExePath := ExpandConstant('{app}\\multicam.exe');
+  if FileExists(ExePath) then
+  begin
+    Exec(ExePath, 'down', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(800);
+  end;
+end;
 `;
 
 writeFileSync(ISS, iss);
