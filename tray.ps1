@@ -94,5 +94,20 @@ $notify.ContextMenuStrip = $menu
 # Left double-click opens the dashboard.
 $notify.add_MouseDoubleClick({ Start-Process $script:operatorUrl })
 
+# Make sure the stack goes down whenever the tray exits - Application.Exit, an
+# unhandled exception, the PowerShell host shutting down. (Task Manager force-kill
+# can't run handlers; the start-up check below catches that case on next launch.)
+[System.Windows.Forms.Application]::add_ApplicationExit({ Stop-Stack })
+Register-EngineEvent PowerShell.Exiting -Action { Stop-Stack } | Out-Null
+
+# If a previous tray left orphaned services running (e.g. it was force-killed),
+# stop them before starting fresh so the new tray owns a clean stack.
+$busy = $false
+foreach ($p in 8443,8444,8889,9000) {
+  if (Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue) { $busy = $true; break }
+}
+if ($busy) { & $Exe down 2>$null | Out-Null }
+
 Start-Stack
-[System.Windows.Forms.Application]::Run()
+try { [System.Windows.Forms.Application]::Run() }
+finally { Stop-Stack }
