@@ -1,0 +1,43 @@
+---
+import { GITHUB_URL } from "../config";
+---
+
+<footer class="border-t border-[color:var(--color-border)] bg-[color:var(--color-panel)]/30">
+  <div class="mx-auto max-w-6xl px-6 py-10 grid gap-8 md:grid-cols-3 text-[13px]">
+    <div>
+      <div class="flex items-center gap-2.5">
+        <img src="/icon.png" alt="" width="22" height="22" class="rounded" />
+        <span class="font-semibold text-white">Wireless Multicam Studio</span>
+      </div>
+      <p class="mt-3 text-[color:var(--color-muted)] max-w-xs">
+        Open-source, LAN-only multi-camera recording.
+        Built by <a href="https://github.com/openidle-dev" class="text-[color:var(--color-text)]/80 hover:text-white underline-offset-4 hover:underline">Nicolaas Grobler</a> and contributors.
+      </p>
+    </div>
+
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-3">Project</div>
+      <ul class="space-y-1.5 text-[color:var(--color-text)]/80">
+        <li><a href={GITHUB_URL} class="hover:text-white transition-colors">GitHub repository</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/README.md`} class="hover:text-white transition-colors">README</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/plan.md`} class="hover:text-white transition-colors">Design doc (plan.md)</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/SECURITY.md`} class="hover:text-white transition-colors">Security model</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-3">Community</div>
+      <ul class="space-y-1.5 text-[color:var(--color-text)]/80">
+        <li><a href={`${GITHUB_URL}/issues`} class="hover:text-white transition-colors">Issues &amp; bug reports</a></li>
+        <li><a href={`${GITHUB_URL}/issues/1`} class="hover:text-white transition-colors">macOS / Linux help wanted</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/LICENSE`} class="hover:text-white transition-colors">MIT license</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="border-t border-[color:var(--color-border)]">
+    <div class="mx-auto max-w-6xl px-6 py-5 text-[12px] text-[color:var(--color-muted)]">
+      © {new Date().getFullYear()} — Wireless Multicam Studio. MIT.
+    </div>
+  </div>
+</footer>

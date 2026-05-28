@@ -1,0 +1,36 @@
+---
+import { GITHUB_URL, DOWNLOAD_URL } from "../config";
+---
+
+<section class="relative overflow-hidden border-t border-[color:var(--color-border)]">
+  <div
+    class="pointer-events-none absolute inset-x-0 top-0 h-[300px] opacity-[0.15]"
+    aria-hidden="true"
+    style="background: radial-gradient(ellipse 50% 80% at 50% 0%, rgba(74,222,128,0.6), transparent 65%);"
+  ></div>
+
+  <div class="relative mx-auto max-w-3xl px-6 py-24 sm:py-32 text-center">
+    <h2 class="text-4xl sm:text-5xl font-semibold tracking-tight text-white leading-[1.05]">
+      Record every angle. Tonight.
+    </h2>
+    <p class="mt-5 text-[17px] text-[color:var(--color-muted)] max-w-xl mx-auto">
+      Free, open source, MIT licensed. Download the Windows installer or build it
+      from source. No account, no telemetry, nothing to subscribe to.
+    </p>
+
+    <div class="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
+      <a
+        href={DOWNLOAD_URL}
+        class="inline-flex items-center justify-center gap-2 rounded-lg bg-[color:var(--color-accent)] px-5 py-3 text-sm font-semibold text-[#04140a] hover:brightness-110 transition shadow-[0_8px_24px_-8px_rgba(74,222,128,0.4)]"
+      >
+        Download for Windows
+      </a>
+      <a
+        href={GITHUB_URL}
+        class="inline-flex items-center justify-center gap-2 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-panel)] px-5 py-3 text-sm font-semibold text-white hover:border-white/40 transition"
+      >
+        Read the source on GitHub
+      </a>
+    </div>
+  </div>
+</section>

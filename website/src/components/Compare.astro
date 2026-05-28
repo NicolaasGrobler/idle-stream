@@ -1,0 +1,66 @@
+---
+const cols = [
+  { key: "us",        label: "Multicam Studio", us: true },
+  { key: "obs",       label: "OBS + NDI" },
+  { key: "riverside", label: "Riverside" },
+  { key: "atem",      label: "ATEM Mini Pro" },
+];
+
+const rows = [
+  { name: "Phones as cameras",     vals: ["✓", "setup heavy", "✓", "✗"] },
+  { name: "No app install",        vals: ["✓", "✗", "✗", "n/a"] },
+  { name: "Lossless per camera",   vals: ["✓", "✓", "✗", "✗"] },
+  { name: "Works fully offline",   vals: ["✓", "✓", "✗", "✓"] },
+  { name: "Hardware cost",         vals: ["$0", "$0", "$0", "$300+"] },
+  { name: "Monthly subscription",  vals: ["none", "none", "$24/mo", "none"] },
+  { name: "Open source",           vals: ["✓ MIT", "✓ GPL", "✗", "✗"] },
+];
+
+function cellClass(v: string) {
+  if (v === "✓" || v === "✓ MIT" || v === "✓ GPL") return "text-[color:var(--color-accent)]";
+  if (v === "✗") return "text-[color:var(--color-faint)]";
+  return "text-[color:var(--color-text)]/85";
+}
+---
+
+<section id="compare" class="mx-auto max-w-6xl px-6 py-24 sm:py-32">
+  <div class="mb-12 max-w-2xl">
+    <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-accent)] mb-3">
+      Why not just use…
+    </div>
+    <h2 class="text-4xl sm:text-5xl font-semibold tracking-tight text-white leading-[1.05]">
+      The honest comparison.
+    </h2>
+    <p class="mt-5 text-[16px] leading-relaxed text-[color:var(--color-muted)]">
+      Multicam shoots have lived in $300 hardware or $24/mo SaaS. Neither uses the
+      cameras you already own. Here's what changes.
+    </p>
+  </div>
+
+  <div class="overflow-x-auto rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-panel)]/50">
+    <table class="w-full text-[14px]">
+      <thead class="text-[11px] uppercase tracking-wider">
+        <tr class="border-b border-[color:var(--color-border)]">
+          <th class="text-left px-5 py-4 font-medium text-[color:var(--color-muted)]"></th>
+          {cols.map((c) => (
+            <th class={`text-left px-5 py-4 font-medium ${c.us ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-muted)]"}`}>
+              {c.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr class="border-b border-[color:var(--color-border)] last:border-0">
+            <td class="px-5 py-3.5 text-[color:var(--color-muted)]">{r.name}</td>
+            {r.vals.map((v, i) => (
+              <td class={`px-5 py-3.5 font-mono text-[13px] ${cellClass(v)} ${i === 0 ? "bg-[color:var(--color-accent)]/[0.04]" : ""}`}>
+                {v}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</section>

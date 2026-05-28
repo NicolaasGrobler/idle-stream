@@ -1,0 +1,46 @@
+---
+import { GITHUB_URL, DOWNLOAD_URL, getStarCount, formatStars } from "../config";
+
+const stars = await getStarCount();
+---
+
+<header
+  class="sticky top-0 z-40 backdrop-blur-md bg-[color:var(--color-bg)]/75 border-b border-[color:var(--color-border)]"
+>
+  <nav
+    class="mx-auto max-w-7xl flex items-center justify-between px-6 py-3.5"
+  >
+    <a href="/" class="flex items-center gap-2.5 group">
+      <img src="/icon.png" alt="" width="28" height="28" class="rounded-md" />
+      <span class="text-[15px] font-semibold tracking-tight text-white">
+        Wireless Multicam Studio
+      </span>
+    </a>
+
+    <div class="hidden md:flex items-center gap-7 text-sm text-[color:var(--color-muted)]">
+      <a href="#how-it-works" class="hover:text-white transition-colors">How it works</a>
+      <a href="#compare" class="hover:text-white transition-colors">Compare</a>
+      <a href={`${GITHUB_URL}/blob/main/README.md`} class="hover:text-white transition-colors">Docs</a>
+    </div>
+
+    <div class="flex items-center gap-2.5">
+      <a
+        href={GITHUB_URL}
+        class="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[color:var(--color-border)] px-3 py-1.5 text-xs text-[color:var(--color-muted)] hover:text-white hover:border-white/40 transition-colors"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 .5A11.5 11.5 0 0 0 .5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11.06 11.06 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.62 1.58.23 2.75.11 3.04.73.81 1.18 1.84 1.18 3.1 0 4.43-2.7 5.41-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.68.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z"/>
+        </svg>
+        <span class="font-medium">
+          {stars !== null && stars > 0 ? `★ ${formatStars(stars)}` : "GitHub"}
+        </span>
+      </a>
+      <a
+        href={DOWNLOAD_URL}
+        class="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--color-accent)] px-3.5 py-1.5 text-xs font-semibold text-[#04140a] hover:brightness-110 transition"
+      >
+        Download
+      </a>
+    </div>
+  </nav>
+</header>

@@ -1,0 +1,30 @@
+---
+// Step 2 — placeholder showing the dashboard arming state (preview, not recording).
+---
+
+<div class="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-panel)] p-3 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)]">
+  <div class="flex items-center justify-between border-b border-[color:var(--color-border)] pb-2 mb-2.5 text-[11px] font-mono">
+    <span class="text-[color:var(--color-muted)]">PREVIEW</span>
+    <span class="text-[color:var(--color-accent)]">● 4 cams live</span>
+  </div>
+  <div class="grid grid-cols-2 gap-2">
+    {[1, 2, 3, 4].map((n) => (
+      <div class="relative aspect-video rounded-md overflow-hidden border border-[color:var(--color-border)] bg-gradient-to-br from-[#1a1d22] via-[#0e1014] to-[#1a1d22]">
+        <div class="absolute inset-0 opacity-50 bg-[radial-gradient(ellipse_at_30%_30%,rgba(74,222,128,0.16),transparent_60%)]"></div>
+        <div class="absolute left-1.5 top-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[9px] font-mono text-[color:var(--color-accent)]">
+          CAM {n}
+        </div>
+        <div class="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-[9px] font-mono text-[color:var(--color-muted)]">
+          <span>1080p</span>
+          <span>6&nbsp;Mbps</span>
+        </div>
+      </div>
+    ))}
+  </div>
+  <div class="mt-3 flex items-center justify-between rounded-md bg-[color:var(--color-bg)] border border-[color:var(--color-border)] px-3 py-2">
+    <span class="text-[12px] text-[color:var(--color-muted)] font-mono">Pre-flight ✓ &nbsp; H.264 ✓ &nbsp; Audio ✓ &nbsp; Disk OK</span>
+    <button class="rounded-md bg-[color:var(--color-accent)] px-3 py-1.5 text-[12px] font-semibold text-[#04140a]">
+      Start Recording
+    </button>
+  </div>
+</div>

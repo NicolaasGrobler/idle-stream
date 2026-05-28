@@ -1,0 +1,56 @@
+---
+const builtOn = [
+  { name: "MediaMTX", href: "https://github.com/bluenviron/mediamtx" },
+  { name: "FFmpeg",   href: "https://ffmpeg.org/" },
+  { name: "mkcert",   href: "https://github.com/FiloSottile/mkcert" },
+  { name: "WebRTC / WHIP", href: "https://datatracker.ietf.org/doc/draft-ietf-wish-whip/" },
+];
+
+const usedFor = [
+  "Church services",
+  "Conferences",
+  "Theater & school plays",
+  "Live music",
+  "Sports",
+  "Panel discussions",
+  "Podcasts",
+  "Interviews",
+];
+---
+
+<section class="border-y border-[color:var(--color-border)] bg-[color:var(--color-panel)]/40">
+  <div class="mx-auto max-w-6xl px-6 py-10 grid gap-10 md:grid-cols-2">
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-4">
+        Built on
+      </div>
+      <div class="flex flex-wrap gap-x-6 gap-y-3">
+        {builtOn.map((b) => (
+          <a
+            href={b.href}
+            class="text-[15px] font-mono text-[color:var(--color-text)]/80 hover:text-white transition-colors"
+          >
+            {b.name}
+          </a>
+        ))}
+      </div>
+    </div>
+
+    <div>
+      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-4">
+        Used for
+      </div>
+      <div class="flex flex-wrap gap-x-2 gap-y-2">
+        {usedFor.map((u, i) => (
+          <span class={`inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] ${
+            i === 0
+              ? "border-[color:var(--color-accent)]/40 bg-[color:var(--color-accent)]/10 text-[color:var(--color-accent)]"
+              : "border-[color:var(--color-border)] bg-[color:var(--color-panel)] text-[color:var(--color-muted)]"
+          }`}>
+            {u}
+          </span>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>
