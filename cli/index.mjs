@@ -85,13 +85,24 @@ function down() {
       try { execSync(`taskkill /PID ${pid} /F /T`, { stdio: 'ignore' }); console.log(`stopped PID ${pid}`); } catch { /* already gone */ }
     }
   } else {
-    for (const port of PORTS) {
+    // Try lsof first (always present on macOS, default on most desktop Linux),
+    // then fall back to `ss -ltnp` (present on every modern Linux, no extra deps).
+    const pidsOn = (port) => {
       try {
-        const out = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN`, { encoding: 'utf8' });
-        for (const pid of out.split(/\s+/).filter(Boolean)) {
-          try { process.kill(Number(pid), 'SIGKILL'); console.log(`stopped PID ${pid} on :${port}`); } catch { /* gone */ }
-        }
-      } catch { /* nothing listening */ }
+        const out = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        return out.split(/\s+/).filter(Boolean);
+      } catch { /* lsof missing or nothing listening — try ss */ }
+      try {
+        const out = execSync(`ss -ltnpH 'sport = :${port}'`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        const pids = [];
+        for (const m of out.matchAll(/pid=(\d+)/g)) pids.push(m[1]);
+        return pids;
+      } catch { return []; }
+    };
+    for (const port of PORTS) {
+      for (const pid of pidsOn(port)) {
+        try { process.kill(Number(pid), 'SIGKILL'); console.log(`stopped PID ${pid} on :${port}`); } catch { /* gone */ }
+      }
     }
   }
   console.log('Stack stopped.');

@@ -47,7 +47,7 @@ export function target() {
 // prefers 192.168.x, then 10.x, then 172.16–31.x. `pref` (e.g. --ip) wins.
 export function getLanIP(pref) {
   if (pref) return pref;
-  const skip = /^(lo|lo0|vethernet|loopback|wsl|tailscale|zerotier|virtualbox|vmware|vboxnet|docker|veth|utun|tun|tap|awdl|llw|bridge)/i;
+  const skip = /^(lo|lo0|vethernet|loopback|wsl|tailscale|zerotier|virtualbox|vmware|vboxnet|virbr|docker|veth|utun|tun|tap|awdl|llw|bridge)/i;
   const isPrivate = (ip) => /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(ip);
   const cands = [];
   for (const [name, addrs] of Object.entries(os.networkInterfaces())) {

@@ -45,7 +45,7 @@ For the full design rationale and the decisions behind it, see **[plan.md](plan.
 
 ## Requirements
 
-- A laptop/desktop (**Windows, macOS, or Linux**) on the same WiFi/LAN as the phones.
+- A laptop/desktop (**Windows fully verified; macOS/Linux code-audited but not yet run end-to-end — help wanted**) on the same WiFi/LAN as the phones.
 - **Node.js 18+** installed. (`tar` is also needed for the tool download — built
   in on macOS, Linux, and Windows 10+.)
 - One or more phones with a modern browser (**iOS Safari** or **Android Chrome**).
