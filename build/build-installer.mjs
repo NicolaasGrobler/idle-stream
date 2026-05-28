@@ -94,7 +94,7 @@ Name: "{autoprograms}\\Wireless Multicam Studio (first-time HTTPS setup)"; Filen
 Name: "{autodesktop}\\Wireless Multicam Studio"; Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"; Parameters: "-WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\\multicam.exe"; Parameters: "certs"; WorkingDir: "{app}"; Description: "Set up the HTTPS certificate now (recommended; one-time, needs admin)"; Flags: postinstall skipifsilent
+Filename: "{app}\\multicam.exe"; Parameters: "certs"; WorkingDir: "{app}"; Description: "Set up the HTTPS certificate now (recommended; one-time, needs admin)"; Flags: postinstall skipifsilent runhidden
 Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"; Parameters: "-WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; WorkingDir: "{app}"; Description: "Launch Wireless Multicam Studio now"; Flags: postinstall nowait skipifsilent unchecked
 `;
 

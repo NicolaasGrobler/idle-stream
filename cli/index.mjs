@@ -107,7 +107,9 @@ function isAdminWin() {
 function relaunchElevated(args) {
   const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
   const argList = args.length ? args.map(q).join(',') : "''";
-  const cmd = `Start-Process -FilePath ${q(process.execPath)} -ArgumentList ${argList} -Verb RunAs -Wait`;
+  // -WindowStyle Hidden suppresses the elevated process's console window — the
+  // UAC prompt still appears (OS-level), but no leftover cmd window after consent.
+  const cmd = `Start-Process -FilePath ${q(process.execPath)} -ArgumentList ${argList} -Verb RunAs -Wait -WindowStyle Hidden`;
   console.log('Requesting administrator access for one-time certificate setup...');
   try {
     execSync(`powershell -NoProfile -Command "${cmd}"`, { stdio: 'inherit' });
