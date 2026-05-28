@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Set up this phone · Multicam</title>
+  <title>Set up this device · Multicam</title>
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <style>
@@ -37,16 +37,16 @@
 </head>
 <body>
   <div class="wrap">
-    <span class="tag" id="platTag">Phone setup</span>
-    <h1>Set up this phone</h1>
-    <p class="sub">One-time setup so this phone can stream its camera to the studio. Takes about a minute.</p>
+    <span class="tag" id="platTag">Device setup</span>
+    <h1>Set up this device</h1>
+    <p class="sub">One-time setup so this device can stream to the studio. Takes about a minute.</p>
 
     <div class="card">
       <div class="step">
         <div class="num">1</div>
         <div>
           <h2>Install the studio certificate</h2>
-          <p>This lets the phone trust the local studio over HTTPS. Without it the camera is blocked.</p>
+          <p>This lets the device trust the local studio over HTTPS. Without it the camera is blocked.</p>
           <a class="btn green" href="/rootCA.pem">Download certificate</a>
 
           <div class="plat" id="ios">
@@ -74,9 +74,9 @@
       <div class="step">
         <div class="num">2</div>
         <div style="flex:1">
-          <h2>Open the camera</h2>
-          <p>Once the certificate is trusted, open the camera page, enter a name, and tap <b>Join</b>.</p>
-          <a class="btn grey" href="./">Open the camera</a>
+          <h2>Open the device page</h2>
+          <p>Once the certificate is trusted, open the device page, enter a name, pick a source, and tap <b>Join</b>.</p>
+          <a class="btn grey" href="./">Open the device page</a>
         </div>
       </div>
     </div>
@@ -86,7 +86,7 @@
       <div class="qrcap">Point another phone's camera at this code to open this setup page on it.</div>
     </div>
 
-    <p class="why">Why a certificate? The studio runs on your local network with no internet, so it uses a locally‑trusted certificate (mkcert) instead of a public one. You trust it once per phone; it keeps working even if the WiFi changes.</p>
+    <p class="why">Why a certificate? The studio runs on your local network with no internet, so it uses a locally‑trusted certificate (mkcert) instead of a public one. You trust it once per device; it keeps working even if the WiFi changes.</p>
   </div>
 
   <script src="vendor/qrcode.js"></script>

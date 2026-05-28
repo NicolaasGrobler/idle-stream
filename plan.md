@@ -144,10 +144,9 @@ idle-stream/
 ├── control/
 │   ├── {index,state,mediamtx,cameras,switches,recordings,assignments,exports,settings}.mjs
 │   └── test/{control,export}.test.mjs   # node:test suites (npm test)
-├── phone-pwa/index.html          # phone capture client (WHIP + control WS)
+├── phone-pwa/index.html          # device capture client (WHIP + control WS)
 ├── operator-dashboard/index.html # operator UI (control WS + WHEP grid)
-├── milestone0/                   # standalone getUserMedia diagnostic (keep for new-device cert checks)
-├── milestone1/                   # standalone publisher (superseded by phone-pwa; kept as a no-orchestration test)
+├── docs/diagnostics/             # standalone bring-up artifacts (milestone0 getUserMedia, milestone1 single-WHIP publisher)
 ├── dev-server.mjs                # TLS static server + WHIP/WHEP/WS reverse proxy
 ├── cli/{index,platform,tools,certs}.mjs   # cross-platform launcher (npm run setup|certs|up|down)
 ├── build/{entry,build-sea,build-installer}.mjs   # SEA single-exe + Windows installer builds

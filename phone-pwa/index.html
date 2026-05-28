@@ -80,17 +80,17 @@
     <div class="card">
       <div class="card-title">Wireless Multicam</div>
       <p class="card-sub">Use this device as a camera or screen. Pick a source and tap Join.</p>
-      <input id="name" placeholder="Device name (e.g. Nicol's iPhone)" autocomplete="off" />
-      <select id="source">
+      <input id="name" placeholder="Device name (e.g. Nicol's iPhone)" autocomplete="off" aria-label="Device name" />
+      <select id="source" aria-label="Capture source">
         <option value="camera" selected>Camera</option>
         <option value="screen">Screen share</option>
         <option value="audio">Audio only (mic)</option>
       </select>
-      <select id="facing">
+      <select id="facing" aria-label="Camera direction">
         <option value="environment" selected>Back camera</option>
         <option value="user">Front camera</option>
       </select>
-      <select id="mic" class="hidden"><option value="">Default microphone</option></select>
+      <select id="mic" class="hidden" aria-label="Microphone"><option value="">Default microphone</option></select>
       <button id="joinBtn" class="primary">Join</button>
       <a href="setup.html" class="setup-link">First time on this device? Set it up &amp; install the certificate &rarr;</a>
     </div>
@@ -363,10 +363,9 @@
       $('joinBtn').disabled = true;
       try {
         await acquireSource();
-        const name = $('name').value.trim() || ({ screen: 'Screen', audio: 'Mic', camera: 'Phone' }[captureKind]);
+        const name = $('name').value.trim() || ({ screen: 'Screen', audio: 'Mic', camera: 'Camera' }[captureKind]);
         $('hudtag').textContent = { screen: 'SCREEN', audio: 'MIC', camera: 'CAMERA' }[captureKind];
         document.body.classList.toggle('screen', captureKind === 'screen');
-        document.body.classList.toggle('audio', captureKind === 'audio');
         $('audioInd').classList.toggle('hidden', captureKind !== 'audio');
         try { await (navigator.wakeLock && navigator.wakeLock.request('screen')); } catch {}
         // Orientation lock only makes sense for a phone camera viewfinder.

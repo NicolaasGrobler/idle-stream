@@ -15,6 +15,13 @@ const MEDIAMTX = { host: '127.0.0.1', port: 8889 };
 const CONTROL = { host: '127.0.0.1', port: 9000 };
 const isMediaMtxPath = (p) => /\/(whip|whep)(\/|$)/.test(p);
 
+function sameOriginUpgrade(req) {
+  const origin = req.headers.origin;
+  const host = req.headers.host;
+  if (!origin || !host) return false;
+  try { return new URL(origin).host === host; } catch { return false; }
+}
+
 function proxyToMediaMtx(req, res) {
   const upstream = httpRequest(
     { host: MEDIAMTX.host, port: MEDIAMTX.port, method: req.method, path: req.url, headers: req.headers },
@@ -111,9 +118,13 @@ export function runDevServer(dirArg, portArg) {
 
 // Proxy WebSocket upgrades on /ws/* to the control service (localhost).
 // Keeps the coordination channel same-origin (wss on this server) — no separate
-// port for the browser, which keeps iOS happy.
+// port for the browser, which keeps iOS happy. Reject cross-origin upgrades:
+// the browser sets Origin from the page URL and JS cannot forge it, so a
+// matching Origin proves the upgrade came from a page served by this server
+// (not from a malicious tab on another LAN origin).
 server.on('upgrade', (req, socket, head) => {
   if (!req.url || !req.url.startsWith('/ws/')) { socket.destroy(); return; }
+  if (!sameOriginUpgrade(req)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
   const up = httpRequest({ host: CONTROL.host, port: CONTROL.port, path: req.url, method: req.method, headers: req.headers });
   up.on('upgrade', (upRes, upSocket, upHead) => {
     const headers = Object.entries(upRes.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n');

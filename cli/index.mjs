@@ -64,7 +64,7 @@ async function up(prefIp) {
 
   console.log('');
   console.log('Stack up.');
-  console.log(`  Phones:   https://${ip}:8443/`);
+  console.log(`  Devices:  https://${ip}:8443/`);
   console.log(`  Operator: https://${OPERATOR_HOST}:8444/   (or https://localhost:8444/)`);
   console.log('  Logs:     ./logs/*.log');
   console.log('  Stop:     multicam down');
@@ -187,7 +187,7 @@ async function launch(prefIp) {
   console.log('');
   console.log('  Wireless Multicam Studio — RUNNING');
   console.log('  ----------------------------------');
-  console.log(`  Phones:   https://${ip}:8443/`);
+  console.log(`  Devices:  https://${ip}:8443/`);
   console.log(`  Operator: https://${OPERATOR_HOST}:8444/   (or https://localhost:8444/)`);
   console.log('');
   console.log('  Opening the dashboard in your browser...');
@@ -252,7 +252,9 @@ export async function runCli(args) {
       case 'up': await up(prefIp); break;
       case 'down': down(); break;
       case 'urls': {
-        // Machine-readable URLs for the tray launcher (stdout only).
+        // Machine-readable URLs for the tray launcher (stdout only). The
+        // `phone=` key name is wire-protocol with tray.ps1 — kept for compat
+        // even though the user-facing label is now "Device".
         const ip = getLanIP(prefIp);
         console.log(`phone=https://${ip}:8443/`);
         console.log(`operator=https://${OPERATOR_HOST}:8444/`);

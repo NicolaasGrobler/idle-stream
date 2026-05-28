@@ -3,7 +3,7 @@
 // system `tar` (bsdtar on Windows 10+/macOS, GNU tar on Linux) for extraction.
 import { existsSync, mkdirSync, rmSync, chmodSync, writeFileSync, readdirSync, statSync, renameSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join, basename } from 'node:path';
+import { join } from 'node:path';
 import { paths, target, isWin } from './platform.mjs';
 
 // The tar to extract with. On Windows pin to the system bsdtar (libarchive):

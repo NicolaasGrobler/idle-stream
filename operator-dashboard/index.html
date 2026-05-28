@@ -82,6 +82,7 @@
     /* Modal (replaces native prompt/confirm) */
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
     .modal { background: #161616; border: 1px solid #333; border-radius: 12px; padding: 18px; width: min(360px, 90vw); box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+    .modal:focus { outline: none; }
     .modal h3 { margin: 0 0 10px; font-size: 16px; }
     .modal-msg { margin: 0 0 14px; color: #bbb; font-size: 14px; }
     .modal-input { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; margin-bottom: 14px; }
@@ -210,7 +211,7 @@
     <div class="spacer"></div>
     <button id="previewAll" class="go">Start Preview (all)</button>
     <button id="stopAll" class="stop">Stop Preview</button>
-    <button id="recBtn" class="rec">● Record</button>
+    <button id="recBtn" class="rec"><span aria-hidden="true">●</span> Record</button>
     <button id="stopRecBtn" class="stop" disabled>Stop Recording</button>
   </header>
 
@@ -237,6 +238,19 @@
     const $ = (id) => document.getElementById(id);
     const setBadge = (el, cls, text) => { el.textContent = text; el.className = 'badge ' + cls; };
     const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    // Every overlay we add to <body> is a modal dialog; tag its inner .modal so
+    // assistive tech announces it as such. One observer covers all overlay
+    // creators without each having to set the attributes itself.
+    new MutationObserver((muts) => {
+      for (const m of muts) for (const n of m.addedNodes) {
+        if (n.nodeType === 1 && n.classList && n.classList.contains('modal-overlay')) {
+          const dlg = n.querySelector('.modal') || n;
+          dlg.setAttribute('role', 'dialog');
+          dlg.setAttribute('aria-modal', 'true');
+        }
+      }
+    }).observe(document.body, { childList: true });
 
     // Inline SVG icons (crisp, theme-colored via currentColor, fully offline).
     const svg = (inner, filled) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="${filled ? 'currentColor' : 'none'}" stroke="${filled ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -390,8 +404,8 @@
         const row = document.createElement('div');
         row.className = 'camrow';
         row.innerHTML = `<span class="cid">${c.id}</span>
-          <input value="${escapeHtml(c.label)}" />
-          <button class="sm stop" title="Remove">×</button>`;
+          <input value="${escapeHtml(c.label)}" aria-label="Camera label" />
+          <button class="sm stop" title="Remove camera" aria-label="Remove camera">×</button>`;
         const input = row.querySelector('input');
         const removeBtn = row.querySelector('button');   // capture before inserting the dropdown (which adds its own <button>)
         const commit = () => { setBusy(false); const v = input.value.trim(); if (v && v !== c.label) send({ type: 'renameCamera', id: c.id, label: v }); };
@@ -428,13 +442,13 @@
         row.className = 'microw';
         row.innerHTML = `<div class="microw-top">
             <span class="cid">${c.id}</span>
-            <input value="${escapeHtml(c.label)}" />
-            <button class="sm stop mic-rm" title="Remove">×</button>
+            <input value="${escapeHtml(c.label)}" aria-label="Audio source label" />
+            <button class="sm stop mic-rm" title="Remove audio source" aria-label="Remove audio source">×</button>
           </div>
           <div class="microw-bot">
-            <span class="mtag" title="routed to">→</span>
+            <span class="mtag" title="routed to" aria-hidden="true">→</span>
             <span class="link-mount"></span>
-            <button class="sm stop mic-listen" title="Listen to this mic">${micListening === c.id ? '⏹ Stop' : '🎧 Listen'}</button>
+            <button class="sm stop mic-listen" title="${micListening === c.id ? 'Stop listening to this mic' : 'Listen to this mic'}">${micListening === c.id ? '<span aria-hidden="true">⏹</span> Stop' : '<span aria-hidden="true">🎧</span> Listen'}</button>
             <span class="badge ${live ? 'ok' : 'muted'}" title="publishing status">${live ? 'live' : 'idle'}</span>
           </div>`;
         const input = row.querySelector('input');
@@ -482,7 +496,7 @@
         }
         const kindBadge = p.kind === 'audio' ? '<span class="badge muted">mic</span> ' : p.kind === 'screen' ? '<span class="badge muted">screen</span> ' : '';
         div.innerHTML = `<div class="name">${escapeHtml(p.name)} ${kindBadge}${statusBadge}${batBadge}`
-          + (offline ? '<span class="spacer"></span><button class="sm stop rmphone" title="Remove device">×</button>' : '')
+          + (offline ? '<span class="spacer"></span><button class="sm stop rmphone" title="Remove device" aria-label="Remove device">×</button>' : '')
           + '</div>';
         if (offline) div.querySelector('.rmphone').addEventListener('click', () => send({ type: 'removePhone', phoneId: p.id }));
         // Audio devices assign to mic slots; camera/screen devices to camera slots.
@@ -640,7 +654,7 @@
       }
       if (ex && ex.ready) {
         return `<a class="act primary" href="/api/export/download?id=${encodeURIComponent(sid)}" download="${escapeHtml(name || sid)}.mp4" title="Download rendered MP4">${ICON.download} MP4</a>`
-          + `<button class="act icononly sess-export" data-idx="${i}" title="Re-export">${ICON.refresh}</button>`;
+          + `<button class="act icononly sess-export" data-idx="${i}" title="Re-export" aria-label="Re-export">${ICON.refresh}</button>`;
       }
       if (ex && ex.status === 'error') {
         return `<button class="act danger sess-export" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">${ICON.warn} Retry</button>`;
@@ -673,7 +687,7 @@
             <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
           </div><button class="act primary sess-preview" data-idx="${i}">${ICON.play} Preview</button>`
           + exportControl(s.sessionId, s.name, i, exports)
-          + `<button class="act icononly danger sess-del" data-idx="${i}" title="Delete session">${ICON.trash}</button></div>`;
+          + `<button class="act icononly danger sess-del" data-idx="${i}" title="Delete session" aria-label="Delete session">${ICON.trash}</button></div>`;
         }).reverse().join('');
       return sub + subtabs + (cards || '<div class="empty">No sessions for this camera.</div>');
     }
@@ -699,8 +713,8 @@
             <div class="clip-file">${escapeHtml(f.name)}</div></div>
             <span class="clip-size">${fmtBytes(f.sizeBytes)}</span>
             <button class="act clip-play" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}">${ICON.play} Play</button>
-            <a class="act icononly clip-dl" href="${url}" download title="Download">${ICON.download}</a>
-            <button class="act icononly danger clip-del" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}" title="Delete">${ICON.trash}</button></div>`;
+            <a class="act icononly clip-dl" href="${url}" download title="Download" aria-label="Download clip">${ICON.download}</a>
+            <button class="act icononly danger clip-del" data-cam="${escapeHtml(c.cam)}" data-name="${escapeHtml(f.name)}" title="Delete" aria-label="Delete clip">${ICON.trash}</button></div>`;
         }).join('');
         return `<div class="cam-group">${head}${rows}</div>`;
       }).join('');
@@ -960,11 +974,11 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `<div class="modal player">
         <div class="rec-head"><h3>Preview · ${escapeHtml(session.name || session.startedAtIso || '')}</h3><span class="spacer"></span>
-          <button class="sm stop pl-fs">⛶ Fullscreen</button>
+          <button class="sm stop pl-fs"><span aria-hidden="true">⛶</span> Fullscreen</button>
           <button class="sm stop pl-close">Close</button></div>
         <div class="player-stage"><div class="player-camlabel"></div><div class="player-black">— before first take —</div><div class="player-spinner"></div></div>
         <div class="player-controls">
-          <button class="go pl-play" style="min-width:84px">▶ Play</button>
+          <button class="go pl-play" style="min-width:84px" aria-label="Play"><span aria-hidden="true">▶</span> Play</button>
           <span class="player-time">00:00 / ${fmtOffset(dur)}</span>
           <div class="player-bar"><div class="player-fill"></div>
             <div class="player-tip"><canvas width="160" height="90"></canvas><div class="pt-spin"></div><div class="pt-gap"></div><span class="pt-time"></span></div></div>
@@ -1103,12 +1117,12 @@
       }
       function play() {
         if (sessionTime >= dur) sessionTime = 0;
-        playing = true; playBtn.textContent = '❚❚ Pause';
+        playing = true; playBtn.setAttribute('aria-label', 'Pause'); playBtn.innerHTML = '<span aria-hidden="true">❚❚</span> Pause';
         activeId = undefined; setActiveFor(sessionTime);
         if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} vids[activeId].play().catch(() => {}); }
         lastMs = performance.now(); raf = requestAnimationFrame(tick);
       }
-      function pause() { playing = false; playBtn.textContent = '▶ Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); for (const el of Object.values(micEls)) el.pause(); refreshStageLoading(); }
+      function pause() { playing = false; playBtn.setAttribute('aria-label', 'Play'); playBtn.innerHTML = '<span aria-hidden="true">▶</span> Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); for (const el of Object.values(micEls)) el.pause(); refreshStageLoading(); }
       function seekTo(t) {
         sessionTime = Math.max(0, Math.min(dur, t)); activeId = undefined; setActiveFor(sessionTime); ui();
         // Seek the active clip's frame even when paused, so scrubbing shows the
@@ -1131,7 +1145,7 @@
 
       // Fullscreen the whole player (stage grows to fill; controls stay visible).
       const fsBtn = overlay.querySelector('.pl-fs');
-      const onFsChange = () => { fsBtn.textContent = document.fullscreenElement === playerEl ? '⛶ Exit fullscreen' : '⛶ Fullscreen'; };
+      const onFsChange = () => { fsBtn.innerHTML = document.fullscreenElement === playerEl ? '<span aria-hidden="true">⛶</span> Exit fullscreen' : '<span aria-hidden="true">⛶</span> Fullscreen'; };
       fsBtn.addEventListener('click', () => {
         if (document.fullscreenElement === playerEl) document.exitFullscreen?.();
         else if (playerEl.requestFullscreen) playerEl.requestFullscreen().catch(() => {});

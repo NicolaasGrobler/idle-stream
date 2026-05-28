@@ -14,8 +14,8 @@ const STORE = join(ROOT, 'data', 'settings.json');
 // recording quality. 8 Mbps is a solid default; the operator can push higher
 // (10–12M) where the AP has headroom, or lower it on a congested network.
 export const DEFAULT_BITRATE = 8_000_000;
-export const MIN_BITRATE = 1_000_000;
-export const MAX_BITRATE = 20_000_000;
+const MIN_BITRATE = 1_000_000;
+const MAX_BITRATE = 20_000_000;
 
 // Coerce an arbitrary value to a valid bitrate, or null if it isn't one.
 export function clampBitrate(x) {

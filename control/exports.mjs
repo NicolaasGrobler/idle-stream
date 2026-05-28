@@ -13,10 +13,11 @@
 // ended — is filled with black + silence so the output stays aligned with the
 // logged offsets. The active camera's own audio is used per segment.
 import { spawn, execFile } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync, createReadStream, statSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { listRecordings, resolveRecording } from './recordings.mjs';
+import { serveRangedFile } from './http-range.mjs';
 
 const ROOT = process.env.MULTICAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..');
 const TOOLS = join(ROOT, 'tools');
@@ -33,8 +34,8 @@ const round3 = (x) => Math.round(x * 1000) / 1000;
 
 // Prefer the downloaded static build; fall back to a PATH binary.
 const toolPath = (name) => (existsSync(join(TOOLS, name + exe)) ? join(TOOLS, name + exe) : name);
-export const ffmpegPath = () => toolPath('ffmpeg');
-export const ffprobePath = () => toolPath('ffprobe');
+const ffmpegPath = () => toolPath('ffmpeg');
+const ffprobePath = () => toolPath('ffprobe');
 
 const jobs = new Map();   // sessionId -> { status, progress, error, file }
 
@@ -45,7 +46,7 @@ export function getAllJobs() {
   return out;
 }
 
-export function exportFile(id) {
+function exportFile(id) {
   if (!SAFE_ID.test(id || '')) return null;
   const f = join(EXPORTS, `${id}.mp4`);
   return existsSync(f) ? f : null;
@@ -243,7 +244,7 @@ export function detectVideoEncoder() {
   _vcodecPromise = (async () => {
     const override = process.env.MULTICAM_ENCODER;
     if (override && override !== 'auto') {
-      console.log(`[exports] encoder (override): ${override}`);
+      console.log(`Export encoder (override): ${override}`);
       return override;
     }
     const ff = ffmpegPath();
@@ -251,9 +252,9 @@ export function detectVideoEncoder() {
       ? ['h264_videotoolbox', 'h264_nvenc']
       : ['h264_nvenc', 'h264_qsv', 'h264_amf'];
     for (const enc of candidates) {
-      if (await testEncoder(ff, enc)) { console.log(`[exports] hardware encoder: ${enc}`); return enc; }
+      if (await testEncoder(ff, enc)) { console.log(`Export encoder: ${enc} (hardware)`); return enc; }
     }
-    console.log('[exports] software encoder: libx264');
+    console.log('Export encoder: libx264 (software)');
     return 'libx264';
   })();
   return _vcodecPromise;
@@ -387,20 +388,8 @@ async function runExport(session, job, opts = {}) {
 export function serveExport(id, req, res) {
   const file = exportFile(id);
   if (!file) return false;
-  const total = statSync(file).size;
-  const base = { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-disposition': `inline; filename="${id}.mp4"` };
-  const m = req.headers.range && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range);
-  if (m) {
-    let start = m[1] === '' ? Math.max(0, total - Number(m[2] || 0)) : parseInt(m[1], 10);
-    let end = m[2] === '' || Number(m[2]) >= total ? total - 1 : parseInt(m[2], 10);
-    if (start > end || start >= total) { res.writeHead(416, { 'content-range': `bytes */${total}` }); res.end(); return true; }
-    res.writeHead(206, { ...base, 'content-range': `bytes ${start}-${end}/${total}`, 'content-length': end - start + 1 });
-    if (req.method === 'HEAD') { res.end(); return true; }
-    createReadStream(file, { start, end }).pipe(res);
-    return true;
-  }
-  res.writeHead(200, { ...base, 'content-length': total });
-  if (req.method === 'HEAD') { res.end(); return true; }
-  createReadStream(file).pipe(res);
-  return true;
+  return serveRangedFile(file, req, res, {
+    'content-type': 'video/mp4',
+    'content-disposition': `inline; filename="${id}.mp4"`,
+  });
 }

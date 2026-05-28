@@ -6,7 +6,6 @@
 // endpoints, proxied same-origin by the dev-server so phones/browser only ever
 // see the trusted origin. Cameras are persisted to data/cameras.json.
 import { createServer } from 'node:http';
-import { createReadStream, statSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
@@ -18,6 +17,7 @@ import * as recordingsStore from './recordings.mjs';
 import * as assignmentsStore from './assignments.mjs';
 import * as exportsStore from './exports.mjs';
 import * as settingsStore from './settings.mjs';
+import { serveRangedFile } from './http-range.mjs';
 
 // Auto-stop a recording this many seconds after the last publisher drops (e.g.
 // the event ended). The grace window tolerates brief WiFi blips — a phone that
@@ -188,7 +188,7 @@ export function createService(mtx, opts = {}) {
           p.kind = kind;
           if (name) p.name = name;
         } else {
-          p = makePhone(phoneId, name || `Phone ${phoneId}`, kind);
+          p = makePhone(phoneId, name || `Device ${phoneId}`, kind);
           state.phones.set(phoneId, p);
           // Restore a persisted assignment (e.g. after a control-service restart),
           // as long as the camera still exists and isn't already taken.
@@ -549,6 +549,17 @@ export function createService(mtx, opts = {}) {
   };
 }
 
+// Reject a WS upgrade whose Origin doesn't match the page it would have been
+// loaded from. The browser sets Origin from the page URL — client JS cannot
+// forge it — so this blocks a malicious LAN page from driving the operator/
+// phone WebSocket from a victim's browser tab.
+function sameOriginUpgrade(req) {
+  const origin = req.headers.origin;
+  const host = req.headers.host;
+  if (!origin || !host) return false;
+  try { return new URL(origin).host === host; } catch { return false; }
+}
+
 // ----- HTTP API (read-only; proxied to the dashboard under /api) ------------
 function sendJson(res, status, body) {
   const buf = Buffer.from(JSON.stringify(body));
@@ -648,35 +659,13 @@ function handleHttp(svc, req, res) {
       sendJson(res, 404, { error: 'not found' });
       return;
     }
-    const total = statSync(file).size;
     // Served inline (not attachment) so a <video> can play it; the dashboard's
     // download links use the `download` attribute, so they still download.
     // Accept-Ranges + 206 lets the player seek (and Safari requires range).
-    const base = {
+    serveRangedFile(file, req, res, {
       'content-type': 'video/mp4',
-      'accept-ranges': 'bytes',
       'content-disposition': `inline; filename="${cam}_${name}"`,
-    };
-    const range = req.headers.range;
-    const m = range && /^bytes=(\d*)-(\d*)$/.exec(range);
-    if (m) {
-      let start = m[1] === '' ? null : parseInt(m[1], 10);
-      let end = m[2] === '' ? null : parseInt(m[2], 10);
-      if (start === null) { start = Math.max(0, total - (end ?? 0)); end = total - 1; }   // bytes=-N suffix
-      else if (end === null || end >= total) { end = total - 1; }
-      if (start > end || start >= total) {
-        res.writeHead(416, { 'content-range': `bytes */${total}` });
-        res.end();
-        return;
-      }
-      res.writeHead(206, { ...base, 'content-range': `bytes ${start}-${end}/${total}`, 'content-length': end - start + 1 });
-      if (req.method === 'HEAD') { res.end(); return; }
-      createReadStream(file, { start, end }).pipe(res);
-      return;
-    }
-    res.writeHead(200, { ...base, 'content-length': total });
-    if (req.method === 'HEAD') { res.end(); return; }
-    createReadStream(file).pipe(res);
+    });
     return;
   }
   sendJson(res, 404, { error: 'not found' });
@@ -694,12 +683,16 @@ export async function runControl() {
 
   server.on('upgrade', (req, socket, head) => {
     const path = (req.url || '').split('?')[0];
+    if (path !== '/ws/phone' && path !== '/ws/operator') { socket.destroy(); return; }
+    // Reject cross-origin upgrades: the browser sets Origin from the page URL
+    // and cannot be forged by client JS. Same-origin (Origin host == Host)
+    // covers every legitimate caller (phone client + operator dashboard, both
+    // talking back to the dev-server they were loaded from).
+    if (!sameOriginUpgrade(req)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
     if (path === '/ws/phone') {
       wss.handleUpgrade(req, socket, head, (ws) => svc.connectPhone(ws));
-    } else if (path === '/ws/operator') {
-      wss.handleUpgrade(req, socket, head, (ws) => svc.connectOperator(ws));
     } else {
-      socket.destroy();
+      wss.handleUpgrade(req, socket, head, (ws) => svc.connectOperator(ws));
     }
   });
 

@@ -1,5 +1,5 @@
 // Milestone 0: minimal HTTPS static server for the getUserMedia gate test.
-// Serves this directory over TLS using the mkcert-generated cert in ../certs.
+// Serves this directory over TLS using the repo's mkcert-generated certs.
 import { createServer } from 'node:https';
 import { readFileSync, createReadStream, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -7,12 +7,13 @@ import { dirname, join, normalize, extname } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = __dirname;
-const certDir = join(__dirname, '..', 'certs');
+// Repo certs live at <repo>/certs — this file is at <repo>/docs/diagnostics/milestone0/.
+const certDir = join(__dirname, '..', '..', '..', 'certs');
 const certPath = join(certDir, 'server-cert.pem');
 const keyPath = join(certDir, 'server-key.pem');
 
 if (!existsSync(certPath) || !existsSync(keyPath)) {
-  console.error('Missing TLS cert. Run setup/make-certs.ps1 first.');
+  console.error('Missing TLS cert. Run `npm run certs` from the repo root first.');
   console.error(`Expected:\n  ${certPath}\n  ${keyPath}`);
   process.exit(1);
 }

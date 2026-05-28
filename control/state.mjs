@@ -35,7 +35,7 @@ export function makePhone(id, name, kind = 'camera') {
 
 // Default global publish bitrate (bps); the operator can change it and override
 // it per camera. Kept here so state has a sane value before settings load.
-export const DEFAULT_BITRATE = 8_000_000;
+const DEFAULT_BITRATE = 8_000_000;
 
 export class SessionState {
   constructor() {
