@@ -292,9 +292,23 @@ Tracked as GitHub issues so contributors can see what's intended:
 - **[Screen capture as a camera source](https://github.com/openidle-dev/idle-stream/issues/3)** (#3) — **done** (see [Build Status](#build-status)): the device page's Screen-share source publishes `getDisplayMedia()` through the same WHIP→MediaMTX pipeline (forces H.264 for copy-only). Works on desktop Chromium/Firefox and Android Chrome; not iOS (no `getDisplayMedia` in WebKit).
 - **[External mic (e.g. DJI wireless) audio in clips](https://github.com/openidle-dev/idle-stream/issues/4)** (#4) — **done** (see [Build Status](#build-status)): audio-only device source + mic picker, `kind:'audio'` slots recorded as separate clips, dashboard panel + Listen monitor + link-to-camera, and per-section export audio routing (mix/replace + camera/mic volumes) edited live in the preview and pulled through to the rendered MP4.
 
+### Live output & external cameras
+
+Newly scoped (not started) — turning the record-for-post studio into one that can
+*also* go live and accept cameras beyond browser publishers. Live output is
+**additive and opt-in**: the offline recording core is unchanged and never touches
+the internet.
+
+- **[Single camera → RTMP/RTMPS (YouTube/Facebook), no OBS](https://github.com/openidle-dev/idle-stream/issues/20)** (#20) — the lightweight live tier and the foundational live feature. MediaMTX already does RTMP egress (disabled today, `mediamtx/mediamtx.yml:18`); push one fixed source out, transcode Opus→AAC for the audio. Ships in the base build, no heavy deps.
+- **[Switched program output via OBS](https://github.com/openidle-dev/idle-stream/issues/17)** (#17) — the live equivalent of the switch log: a switched broadcast driven by **headless OBS over obs-websocket** (the persistent-encoder + compositor problem; do **not** hand-roll an FFmpeg/GStreamer switcher). Heavy (bundles OBS) → a separate, optional download. Validate real demand for switched *live* first — single-cam (#20) covers most needs.
+- **[Hardware / network camera ingest (RTSP/NDI)](https://github.com/openidle-dev/idle-stream/issues/18)** (#18) — accept a dedicated PTZ/pro camera, not just browser publishers. An HDMI→USB capture dongle works **today** (lossy, funnelled through the browser pipeline); native RTSP/NDI needs a new always-on **"permanent source"** type in the control service. MediaMTX already ingests RTSP/RTMP/SRT.
+- **[Modular features / optional installs](https://github.com/openidle-dev/idle-stream/issues/19)** (#19) — slim base vs full: feature-gate live so users who only want recording never download the heavy OBS stack (separate exes, optional installer components, or on-demand tool fetch). One codebase, different packaging manifests.
+
 ## Future: Live Streaming (not v1)
 
 Pushing a switched feed to RTMP needs **one persistent encoder fed by a switchable compositor** (restarting/swapping an encoder drops the stream). The proven answer is **OBS driven over obs-websocket** (scene switching never restarts the encoder); cameras feed OBS as RTSP/WHEP sources from MediaMTX. Do **not** hand-roll an FFmpeg/GStreamer switcher. A lighter middle ground: MediaMTX can restream a **single fixed camera** to RTMP with no OBS and no switching. Deferred until the requirement is real.
+
+This is now tracked concretely: single-camera egress (#20), switched output via OBS (#17), and the modular packaging that keeps OBS an optional download (#19) — plus external/non-browser camera ingest (#18). See [Roadmap → Live output & external cameras](#live-output--external-cameras).
 
 ## Testing
 

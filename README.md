@@ -259,21 +259,17 @@ model and how to report issues.
 
 ## Roadmap
 
-The four GitHub issues that scoped the v1 build are mostly **closed**:
-[#2 crossfade transitions](https://github.com/openidle-dev/idle-stream/issues/2),
-[#3 screen capture](https://github.com/openidle-dev/idle-stream/issues/3),
-and [#4 external mic audio](https://github.com/openidle-dev/idle-stream/issues/4)
-all shipped and are documented above. The remaining roadmap item is the
-big one:
+The roadmap lives on the website — a visual board of what's shipped, planned, and
+being explored, every item linked to its issue:
 
-- **[macOS & Linux support](https://github.com/openidle-dev/idle-stream/issues/1)**
-  — verify the CLI/`multicam` binary on those OSes end-to-end, then per-OS
-  packaging (`.dmg`/`.app`, AppImage/`.deb`) and a window-free tray (macOS
-  menubar, Linux libappindicator). Help wanted.
+**→ [idlestream.openidle.com/roadmap](https://idlestream.openidle.com/roadmap)**
 
-Beyond that, things that would be useful but aren't blocking anything:
-multi-mic mixing per camera, low-battery warnings on the operator dashboard,
-a configurable export resolution/bitrate, and frame-accurate clip alignment.
+It's driven by [GitHub Issues](https://github.com/openidle-dev/idle-stream/issues),
+which stay the source of truth (so nothing here goes stale). Shipped so far: crossfade
+transitions ([#2](https://github.com/openidle-dev/idle-stream/issues/2)), screen capture
+([#3](https://github.com/openidle-dev/idle-stream/issues/3)), and external-mic audio
+([#4](https://github.com/openidle-dev/idle-stream/issues/4)). The largest open item is
+[macOS & Linux support](https://github.com/openidle-dev/idle-stream/issues/1) — help wanted.
 
 ## Project layout
 
