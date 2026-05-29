@@ -1,0 +1,72 @@
+---
+// Shared "monitor" shell extracted from the hero dashboard window so every
+// mockup on the page reads as the same physical device. Two chrome styles:
+//   url   -> browser chrome (traffic-light dots + a mono URL pill)
+//   label -> instrument chrome (a mono label, no dots) for non-browser panels
+interface Props {
+  url?: string;
+  tail?: string;
+  label?: string;
+  pill?: string;
+  tone?: "live" | "rec";
+  class?: string;
+}
+const { url, tail = "", label, pill, tone = "live", class: cls = "" } = Astro.props;
+---
+
+<div class={`mf ${cls}`}>
+  <div class="mf-chrome">
+    {url && (
+      <>
+        <span class="mf-dots"><i></i><i></i><i></i></span>
+        <span class="mf-url">{url}<span class="mf-url-dim">{tail}</span></span>
+      </>
+    )}
+    {label && <span class="mf-label">{label}</span>}
+    {pill && <span class={`mf-pill mf-pill-${tone}`}><span class="mf-pill-dot"></span>{pill}</span>}
+  </div>
+  <div class="mf-body"><slot /></div>
+</div>
+
+<style>
+  .mf {
+    border-radius: 12px;
+    overflow: hidden;
+    background: #0a0a0a;
+    border: 1px solid #23262c;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 30px 70px -34px rgba(0, 0, 0, 0.9),
+      0 8px 24px -16px rgba(0, 0, 0, 0.7),
+      0 0 60px -34px rgba(74, 222, 128, 0.12);
+  }
+  .mf-chrome {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; background: #121316; border-bottom: 1px solid #1f2228;
+  }
+  .mf-dots { display: flex; gap: 5px; flex: none; }
+  .mf-dots i { width: 9px; height: 9px; border-radius: 50%; background: #2c2f36; display: block; }
+  .mf-url {
+    font-family: var(--font-mono); font-size: 11px; color: #b9bec6;
+    background: #0c0d10; border: 1px solid #23262c; border-radius: 6px; padding: 3px 10px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mf-url-dim { color: #6a707a; }
+  .mf-label {
+    font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: #8b929c;
+  }
+  .mf-pill {
+    margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px;
+    font: 600 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 4px 9px; border-radius: 999px;
+  }
+  .mf-pill-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .mf-pill-live { color: #79d9a0; background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.25); }
+  .mf-pill-live .mf-pill-dot { background: #4ade80; box-shadow: 0 0 6px rgba(74, 222, 128, 0.6); }
+  .mf-pill-rec { color: #fca5a5; background: #2c1010; border: 1px solid rgba(239, 68, 68, 0.4); }
+  .mf-pill-rec .mf-pill-dot { background: #ef4444; box-shadow: 0 0 6px #ef4444; animation: mf-pulse 1.6s ease-in-out infinite; }
+  .mf-body { background: #0a0a0a; }
+  @keyframes mf-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  @media (prefers-reduced-motion: reduce) { .mf-pill-rec .mf-pill-dot { animation: none; } }
+</style>

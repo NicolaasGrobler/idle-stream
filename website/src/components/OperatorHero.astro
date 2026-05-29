@@ -1,0 +1,534 @@
+---
+import { GITHUB_URL, DOWNLOAD_URL, getStarCount, formatStars } from "../config";
+
+const stars = await getStarCount();
+
+// The cameras shown in the live grid. `file` is the looping clip in
+// public/feeds/. Six tiles => keys 1–6 take to air.
+const cams = [
+  { n: 1, label: "STAGE",      sub: "wide",    file: "stage" },
+  { n: 2, label: "PODIUM",     sub: "speaker", file: "podium" },
+  { n: 3, label: "CLOSE-UP",   sub: "speaker", file: "closeup" },
+  { n: 4, label: "SCREEN",     sub: "share",   file: "screen" },
+  { n: 5, label: "AUDIENCE",   sub: "wide",    file: "audience" },
+  { n: 6, label: "SIDE STAGE", sub: "band",    file: "sidestage" },
+];
+const startPgm = 1; // CAM 2 is on program at first paint
+const logSlots = 5;
+---
+
+<section class="oh">
+  <div class="mx-auto max-w-[1240px] px-6 sm:px-10 pt-14 pb-20 sm:pt-16 sm:pb-24">
+
+    <!-- Eyebrow -->
+    <div class="oh-eyebrow">
+      <span class="oh-eyebrow-dot"></span>
+      Open source · Local · No cloud
+    </div>
+
+    <!-- Headline -->
+    <h1 class="oh-h1">
+      Turn every phone in the room into a
+      <span class="oh-accent">synchronized</span> camera.
+    </h1>
+
+    <p class="oh-lede">
+      Lossless multi-angle recording on your laptop. No app install, no capture
+      card, no subscription — just a URL. Below is the real operator dashboard.
+    </p>
+
+    <div class="oh-cta">
+      <a href={DOWNLOAD_URL} class="oh-btn oh-btn-go">
+        Download for Windows
+        <span aria-hidden="true">↓</span>
+      </a>
+      <a href={GITHUB_URL} class="oh-btn oh-btn-ghost">
+        View source on GitHub
+        <span aria-hidden="true" class="oh-btn-arrow">→</span>
+        {stars !== null && stars > 0 && <span class="oh-stars">★ {formatStars(stars)}</span>}
+      </a>
+    </div>
+
+    <!-- ─── The live operator dashboard (a real, playable demo) ─── -->
+    <figure class="oh-fig" data-switcher>
+      <div class="oh-window">
+      <!-- Faux browser chrome — reinforces "it's just a URL" -->
+      <div class="oh-chrome">
+        <span class="oh-dots"><i></i><i></i><i></i></span>
+        <span class="oh-url">studio.localhost<span class="oh-url-dim">/  ·  Operator Dashboard</span></span>
+        <span class="oh-livepill"><span class="oh-livepill-dot"></span>live demo</span>
+      </div>
+
+      <!-- The dashboard -->
+      <div class="oh-app">
+        <header class="oh-head">
+          <h2 class="oh-head-title">Operator</h2>
+          <span class="oh-badge oh-ok"><span class="oh-dot-ok"></span>connected</span>
+          <span class="oh-badge oh-ok" data-livecount>6 live</span>
+          <span class="oh-badge oh-rec"><span class="oh-recdot"></span><span data-rec>REC 00:42</span></span>
+          <span class="oh-spacer"></span>
+          <button type="button" class="oh-hbtn" tabindex="-1" aria-hidden="true">Pre-flight</button>
+          <button type="button" class="oh-hbtn" tabindex="-1" aria-hidden="true">Recordings</button>
+          <button type="button" class="oh-hbtn oh-stoprec" tabindex="-1" aria-hidden="true">Stop Recording</button>
+        </header>
+
+        <div class="oh-main">
+          <aside class="oh-side">
+            <div class="oh-sect">Cameras</div>
+            <div class="oh-card">
+              {cams.map((c) => (
+                <div class="oh-camrow" data-camrow>
+                  <span class="oh-cid">cam {c.n}</span>
+                  <span class="oh-camname">{c.label}</span>
+                  <span class="oh-camdot"></span>
+                </div>
+              ))}
+            </div>
+
+            <div class="oh-sect">Switch log</div>
+            <div class="oh-card oh-log" data-log aria-hidden="true">
+              {Array.from({ length: logSlots }).map(() => (
+                <div class="oh-swrow"><span class="oh-swt"></span><span class="oh-swl"></span></div>
+              ))}
+            </div>
+          </aside>
+
+          <div class="oh-grid" data-grid role="group" aria-label="Live camera grid — take a camera to program">
+            {cams.map((c, i) => (
+              <button
+                type="button"
+                class={`oh-tile${i === startPgm ? " pgm" : ""}`}
+                data-key={i}
+                aria-pressed={i === startPgm ? "true" : "false"}
+                aria-label={`Take camera ${c.n}, ${c.label}, to program`}
+              >
+                <video
+                  class="oh-feed" data-feed
+                  muted loop playsinline preload="auto"
+                  poster={`/feeds/cam-${c.file}.jpg`}
+                  aria-hidden="true"
+                ><source src={`/feeds/cam-${c.file}.mp4`} type="video/mp4" /></video>
+                <span class="oh-tile-grad" aria-hidden="true"></span>
+                <span class="oh-label">{c.n} · {c.label}</span>
+                <span class="oh-pgmbadge">PGM</span>
+                <span class="oh-state"><span class="oh-dot-ok"></span>live</span>
+                <span class="oh-stats">1080p · H.264</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <figcaption class="oh-cap">
+        <span class="oh-cap-key">▶</span>
+        The actual dashboard, running live. Press <kbd>1</kbd>–<kbd>6</kbd> or click a
+        feed to take it to air — the switch log records every cut for the post edit.
+      </figcaption>
+
+      <p class="oh-sr" data-live aria-live="polite"></p>
+    </figure>
+  </div>
+</section>
+
+<style>
+  .oh {
+    position: relative;
+    color: #e8e8e8;
+    background:
+      radial-gradient(120% 90% at 50% -10%, #15171c 0%, #0c0d10 46%, #08090b 100%);
+    border-bottom: 1px solid #1c1f24;
+    overflow: hidden;
+  }
+  /* faint control-room signal grid in the backdrop */
+  .oh::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(120% 80% at 50% 0%, #000 30%, transparent 75%);
+    pointer-events: none;
+  }
+  .oh > div { position: relative; }
+
+  .oh-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #9aa1ac;
+    padding: 5px 12px 5px 10px;
+    border: 1px solid #23262c;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .oh-eyebrow-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #4ade80; box-shadow: 0 0 8px 1px rgba(74, 222, 128, 0.7);
+  }
+
+  .oh-h1 {
+    margin: 22px 0 0;
+    max-width: 17ch;
+    font-family: var(--font-sans);
+    font-weight: 680;
+    letter-spacing: -0.025em;
+    line-height: 1.02;
+    color: #f4f5f7;
+    font-size: clamp(40px, 6.4vw, 88px);
+    text-wrap: balance;
+  }
+  .oh-accent {
+    color: #4ade80;
+    text-shadow: 0 0 28px rgba(74, 222, 128, 0.28);
+  }
+  .oh-lede {
+    margin: 22px 0 0;
+    max-width: 56ch;
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.55;
+    color: #aab0b9;
+  }
+
+  .oh-cta { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+  .oh-btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: 14px; font-weight: 600; text-decoration: none;
+    border-radius: 9px; padding: 11px 18px; transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .oh-btn-go { background: #16a34a; color: #fff; border: 1px solid #16a34a; }
+  .oh-btn-go:hover { background: #15913f; }
+  .oh-btn-ghost { color: #e8e8e8; border: 1px solid #2b2f37; background: rgba(255,255,255,0.015); }
+  .oh-btn-ghost:hover { border-color: #3a414b; color: #fff; }
+  .oh-btn-arrow { transition: transform 0.15s; }
+  .oh-btn-ghost:hover .oh-btn-arrow { transform: translateX(3px); }
+  .oh-stars { color: #8b929c; font-weight: 500; margin-left: 2px; }
+  .oh-btn:focus-visible { outline: 2px solid #4ade80; outline-offset: 3px; }
+
+  /* ─── The dashboard window ───────────────────────────────────────────── */
+  /* Full content-column width so its edges line up with the headline + CTAs. */
+  .oh-fig { margin: 44px 0 0; }
+  .oh-window {
+    border-radius: 14px;
+    overflow: hidden;
+    background: #0a0a0a;
+    border: 1px solid #23262c;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 40px 90px -40px rgba(0, 0, 0, 0.9),
+      0 10px 30px -18px rgba(0, 0, 0, 0.7),
+      0 0 80px -30px rgba(74, 222, 128, 0.12);
+  }
+  .oh-chrome {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 14px;
+    background: #121316;
+    border-bottom: 1px solid #1f2228;
+  }
+  .oh-dots { display: flex; gap: 6px; }
+  .oh-dots i { width: 11px; height: 11px; border-radius: 50%; background: #2c2f36; display: block; }
+  .oh-url {
+    font-family: var(--font-mono); font-size: 12px; color: #b9bec6;
+    background: #0c0d10; border: 1px solid #23262c; border-radius: 7px;
+    padding: 4px 12px; flex: 0 1 auto;
+  }
+  .oh-url-dim { color: #6a707a; }
+  .oh-livepill {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; color: #4ade80;
+    padding: 3px 9px; border-radius: 999px; background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.25);
+  }
+  .oh-livepill-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; animation: oh-pulse 1.8s ease-in-out infinite; }
+
+  .oh-app { display: flex; flex-direction: column; min-height: 0; }
+  .oh-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid #1d1f24; background: #0c0d10;
+  }
+  .oh-head-title { margin: 0; font-size: 14px; font-weight: 700; color: #e8e8e8; }
+  .oh-spacer { flex: 1; }
+  .oh-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+  }
+  .oh-ok { background: #0c2a18; color: #4ade80; }
+  .oh-rec { background: #2c1010; color: #fca5a5; }
+  .oh-dot-ok { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; }
+  .oh-recdot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: oh-pulse 1.6s ease-in-out infinite; }
+  .oh-hbtn {
+    font: inherit; font-size: 12px; font-weight: 600;
+    padding: 5px 10px; border-radius: 7px; border: 1px solid #2a2f37; background: #161616; color: #c7ccd4;
+  }
+  .oh-stoprec { background: #1c1010; border-color: #4a1d1d; color: #f3a9a9; }
+
+  .oh-main { display: flex; min-height: 0; }
+  .oh-side {
+    width: 232px; flex: none; padding: 12px; border-right: 1px solid #1d1f24;
+    background: #0b0c0e; display: flex; flex-direction: column; gap: 4px;
+  }
+  .oh-sect {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8f96a0;
+    margin: 6px 2px 8px;
+  }
+  .oh-card { background: #131416; border: 1px solid #222; border-radius: 10px; padding: 8px; margin-bottom: 8px; }
+  .oh-camrow { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; }
+  .oh-camrow + .oh-camrow { border-top: 1px solid #1a1b1e; }
+  .oh-cid { font-size: 11px; color: #6f757e; font-variant-numeric: tabular-nums; flex: none; }
+  .oh-camname { font-size: 13px; color: #d4d8de; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .oh-camdot { width: 7px; height: 7px; border-radius: 50%; background: #2f7d4f; flex: none; }
+  .oh-camrow.live .oh-camdot { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.6); }
+
+  .oh-log { max-height: 188px; overflow: hidden; display: flex; flex-direction: column; gap: 1px; }
+  .oh-swrow { display: flex; gap: 9px; align-items: baseline; padding: 4px 3px; font-size: 13px; }
+  .oh-swrow:empty, .oh-swrow:has(.oh-swt:empty) { display: none; }
+  .oh-swt { color: #f87171; font-variant-numeric: tabular-nums; width: 46px; flex: none; }
+  .oh-swl { color: #cfd3da; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .oh-swrow.is-new .oh-swl { color: #fff; }
+
+  .oh-grid {
+    position: relative; flex: 1; min-width: 0;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 12px;
+    align-content: start;
+  }
+  .oh-tile {
+    position: relative; padding: 0; margin: 0; border: 1px solid #24262c; border-radius: 10px;
+    overflow: hidden; aspect-ratio: 16 / 9; background: #000; cursor: pointer;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+  }
+  .oh-feed { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; background: #050608; }
+  /* legibility gradient so labels read over any feed */
+  .oh-tile-grad {
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, transparent 22%, transparent 72%, rgba(0,0,0,0.55) 100%);
+  }
+  .oh-label {
+    position: absolute; top: 7px; left: 8px; z-index: 2;
+    font-size: 12px; font-weight: 600; color: #fff; letter-spacing: 0.01em;
+    padding: 2px 7px; background: rgba(0,0,0,0.5); border-radius: 6px; backdrop-filter: blur(2px);
+  }
+  .oh-pgmbadge {
+    position: absolute; top: 7px; right: 8px; z-index: 2; display: none;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #fff;
+    padding: 2px 7px; background: #dc2626; border-radius: 6px;
+  }
+  .oh-state {
+    position: absolute; bottom: 7px; left: 8px; z-index: 2;
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; color: #b6f3cd;
+    padding: 2px 7px; background: rgba(5,30,16,0.6); border-radius: 6px;
+  }
+  .oh-stats {
+    position: absolute; bottom: 7px; right: 8px; z-index: 2;
+    font-size: 10px; color: #c4c9d0; font-variant-numeric: tabular-nums;
+    padding: 2px 6px; background: rgba(0,0,0,0.5); border-radius: 6px;
+  }
+  .oh-tile:hover { border-color: #3a3f48; }
+  .oh-tile:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .oh-tile.pgm {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 2px #ef4444 inset, 0 0 22px rgba(239, 68, 68, 0.5);
+  }
+  .oh-tile.pgm .oh-pgmbadge { display: inline-block; }
+  .oh-tile.flash { animation: oh-take 0.5s ease-out; }
+
+  .oh-cap {
+    margin: 18px auto 0; max-width: 62ch; text-align: center;
+    font-size: 13.5px; line-height: 1.55; color: #8b929c;
+  }
+  .oh-cap-key { color: #4ade80; margin-right: 4px; }
+  .oh-cap kbd {
+    font-family: var(--font-mono); font-size: 11px; color: #d4d8de;
+    background: #17181b; border: 1px solid #2a2f37; border-radius: 4px; padding: 1px 5px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+
+  .oh-sr {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  @keyframes oh-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes oh-take {
+    0% { box-shadow: 0 0 0 2px #fff inset, 0 0 30px rgba(255, 255, 255, 0.5); }
+    100% { box-shadow: 0 0 0 2px #ef4444 inset, 0 0 22px rgba(239, 68, 68, 0.5); }
+  }
+
+  @media (max-width: 900px) {
+    .oh-side { width: 100%; order: 2; border-right: none; border-top: 1px solid #1d1f24; flex-direction: row; gap: 14px; }
+    .oh-main { flex-direction: column; }
+    .oh-side .oh-card { flex: 1; margin-bottom: 0; }
+    .oh-side > .oh-sect:first-child, .oh-side .oh-card:first-of-type { display: none; } /* hide camera list, keep switch log */
+    .oh-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .oh-window { margin-top: 30px; }
+    .oh-side { display: none; }
+    .oh-stats, .oh-state { display: none; }
+    .oh-head-title { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .oh-recdot, .oh-livepill-dot { animation: none; }
+    .oh-tile, .oh-tile.flash { transition: none; animation: none; }
+  }
+</style>
+
+<script>
+  // ─── Live operator dashboard: playable demo ─────────────────────────────
+  // Each tile plays a short, muted, looping event clip (real footage). Taking a
+  // camera to air is pure DOM/CSS — the program highlight moves, the switch log
+  // appends, REC ticks — mirroring the real app, which shows every feed at once
+  // and only marks which one is on program. Clips pause when the hero is
+  // off-screen or the tab is hidden; under prefers-reduced-motion they hold on
+  // their poster frame and don't autoplay.
+
+  function initSwitcher(root: HTMLElement) {
+    const cams = [
+      { n: 1, label: "STAGE" }, { n: 2, label: "PODIUM" }, { n: 3, label: "CLOSE-UP" },
+      { n: 4, label: "SCREEN" }, { n: 5, label: "AUDIENCE" }, { n: 6, label: "SIDE STAGE" },
+    ];
+
+    const grid = root.querySelector("[data-grid]") as HTMLElement;
+    const tiles = Array.from(root.querySelectorAll<HTMLButtonElement>(".oh-tile"));
+    const videos = Array.from(root.querySelectorAll<HTMLVideoElement>("[data-feed]"));
+    const recEl = root.querySelector("[data-rec]") as HTMLElement;
+    const liveEl = root.querySelector("[data-live]") as HTMLElement;
+    const camRows = Array.from(root.querySelectorAll<HTMLElement>("[data-camrow]"));
+    const logSlots = Array.from(root.querySelectorAll<HTMLElement>(".oh-swrow"));
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const N = tiles.length;
+    let pgm = 1;
+    let onScreen = false;
+    let running = false;
+
+    // Force the muted property (not just the attribute) so autoplay is allowed.
+    videos.forEach((v) => { v.muted = true; });
+
+    // Session clock starts mid-session so it reads like a real shoot.
+    const start = performance.now() - 42_000;
+    const clock = () => (performance.now() - start) / 1000;
+    const tc = (s: number) => {
+      const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+      return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+    };
+
+    // ── Feeds: play / pause the looping clips with visibility ──────────────
+    let recTimer = 0;
+    function play() {
+      if (running || reduced) return;
+      running = true;
+      videos.forEach((v) => { const p = v.play(); if (p && p.catch) p.catch(() => {}); });
+      recEl.textContent = `REC ${tc(clock())}`;
+      recTimer = window.setInterval(() => { recEl.textContent = `REC ${tc(clock())}`; }, 500);
+    }
+    function pause() {
+      running = false;
+      videos.forEach((v) => v.pause());
+      if (recTimer) { clearInterval(recTimer); recTimer = 0; }
+    }
+
+    // ── The cut: move program, append switch log ──────────────────────────
+    function renderLog(takes: { tc: string; n: number }[]) {
+      const recent = takes.slice(-logSlots.length);
+      const offset = logSlots.length - recent.length;
+      logSlots.forEach((slot, i) => {
+        const idx = i - offset;
+        const t = slot.querySelector(".oh-swt") as HTMLElement;
+        const l = slot.querySelector(".oh-swl") as HTMLElement;
+        if (idx < 0 || idx >= recent.length) { t.textContent = ""; l.textContent = ""; slot.classList.remove("is-new"); return; }
+        t.textContent = recent[idx].tc;
+        l.textContent = `CAM ${recent[idx].n} · ${cams[recent[idx].n - 1].label}`;
+        slot.classList.toggle("is-new", idx === recent.length - 1);
+      });
+    }
+    const takes: { tc: string; n: number }[] = [
+      { tc: "00:12", n: 1 }, { tc: "00:24", n: 3 }, { tc: "00:31", n: 2 },
+    ];
+    renderLog(takes);
+
+    function cut(i: number, user: boolean) {
+      if (user) bumpIdle();
+      if (i === pgm || i < 0 || i >= N) return;
+      pgm = i;
+      tiles.forEach((t, k) => {
+        const live = k === i;
+        t.classList.toggle("pgm", live);
+        t.setAttribute("aria-pressed", live ? "true" : "false");
+      });
+      camRows.forEach((r, k) => r.classList.toggle("live", k === i));
+      if (!reduced) { const tile = tiles[i]; tile.classList.remove("flash"); void tile.offsetWidth; tile.classList.add("flash"); }
+      takes.push({ tc: tc(clock()), n: cams[i].n });
+      if (takes.length > 40) takes.shift();
+      renderLog(takes);
+      if (user) liveEl.textContent = `On air: camera ${cams[i].n}, ${cams[i].label.toLowerCase()}`;
+    }
+    // initial live state on the camera list
+    camRows.forEach((r, k) => r.classList.toggle("live", k === pgm));
+
+    // ── Idle auto-pilot (yields to the visitor) ────────────────────────────
+    const demo = [2, 0, 4, 1, 5, 3, 0, 2, 4, 5, 1, 3];
+    let step = 0, autoT = 0, resumeT = 0, idle = true;
+    function scheduleAuto() {
+      if (reduced) return;
+      clearTimeout(autoT);
+      autoT = window.setTimeout(() => {
+        if (idle && running && !document.hidden) { cut(demo[step % demo.length], false); step++; }
+        scheduleAuto();
+      }, 3400);
+    }
+    function bumpIdle() {
+      idle = false;
+      clearTimeout(autoT); clearTimeout(resumeT);
+      resumeT = window.setTimeout(() => { idle = true; }, 5000);
+    }
+
+    // ── Input ──────────────────────────────────────────────────────────────
+    tiles.forEach((t) => t.addEventListener("click", () => cut(Number(t.dataset.key), true)));
+    window.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!onScreen) return;
+      const code = e.key.charCodeAt(0);
+      if (e.key.length !== 1 || code < 49 || code > 48 + N) return; // '1'..'N'
+      const tgt = e.target as HTMLElement | null;
+      if (tgt && typeof tgt.closest === "function" &&
+          tgt.closest("input,textarea,select,[contenteditable],[role=textbox],[role=combobox],[role=spinbutton],[role=slider]")) return;
+      e.preventDefault();
+      cut(code - 49, true);
+    });
+
+    // ── Lifecycle ───────────────────────────────────────────────────────────
+    // Track on-screen visibility ALWAYS (the keyboard cut is scoped to it, even
+    // under reduced-motion). Only video playback + auto-pilot are gated on motion.
+    const animate = !reduced;
+    const io = new IntersectionObserver((entries) => {
+      const vis = !!entries[0]?.isIntersecting;
+      if (vis && !document.hidden) {
+        const wasOff = !onScreen;
+        onScreen = true;
+        if (animate) { play(); if (wasOff) scheduleAuto(); }   // (re)arm only on a real enter
+      } else {
+        onScreen = false;
+        if (animate) { pause(); clearTimeout(autoT); clearTimeout(resumeT); }
+      }
+    }, { threshold: 0.08 });
+    io.observe(grid);
+
+    if (animate) {
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) { pause(); clearTimeout(autoT); clearTimeout(resumeT); }
+        else if (!running && onScreen) { play(); scheduleAuto(); }
+      });
+    }
+    // Under reduced-motion the clips simply hold on their poster frame; the
+    // dashboard stays fully interactive (keyboard cuts work via onScreen).
+  }
+
+  const el = document.querySelector<HTMLElement>("[data-switcher]");
+  if (el) initSwitcher(el);
+</script>

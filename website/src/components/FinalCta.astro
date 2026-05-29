@@ -2,35 +2,140 @@
 import { GITHUB_URL, DOWNLOAD_URL } from "../config";
 ---
 
-<section class="relative overflow-hidden border-t border-[color:var(--color-border)]">
-  <div
-    class="pointer-events-none absolute inset-x-0 top-0 h-[300px] opacity-[0.15]"
-    aria-hidden="true"
-    style="background: radial-gradient(ellipse 50% 80% at 50% 0%, rgba(74,222,128,0.6), transparent 65%);"
-  ></div>
+<section class="relative border-t border-[#1d1f24] bg-[#0a0a0a] overflow-hidden" data-cta>
+  <!-- Creative backdrop: a multiviewer "tally wall" — a green signal sweep
+       travels the grid, one cell holds program (red). Subtle, paused offscreen,
+       static under reduced-motion. Purely decorative. -->
+  <canvas class="cta-wall" data-tallywall aria-hidden="true"></canvas>
+  <div class="cta-veil" aria-hidden="true"></div>
 
-  <div class="relative mx-auto max-w-3xl px-6 py-24 sm:py-32 text-center">
-    <h2 class="text-4xl sm:text-5xl font-semibold tracking-tight text-white leading-[1.05]">
-      Record every angle. Tonight.
+  <div class="relative mx-auto max-w-3xl px-6 sm:px-10 py-28 sm:py-36 text-center reveal-fade">
+    <div class="flex items-center justify-center gap-4 mb-9">
+      <span class="h-px w-12 bg-gradient-to-r from-transparent to-[#2a2e35]"></span>
+      <span class="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-[0.16em] text-[#8b929c]">
+        <span class="size-1.5 rounded-full bg-[#ef4444] rec-dot"></span> on air
+      </span>
+      <span class="h-px w-12 bg-gradient-to-l from-transparent to-[#2a2e35]"></span>
+    </div>
+
+    <h2 class="text-[#f3f4f6] font-semibold tracking-[-0.025em] leading-[1.0]" style="font-size: clamp(44px, 7vw, 96px);">
+      Record every angle.
+      <span class="text-[#4ade80]" style="text-shadow: 0 0 36px rgba(74,222,128,0.3);">Tonight.</span>
     </h2>
-    <p class="mt-5 text-[17px] text-[color:var(--color-muted)] max-w-xl mx-auto">
+
+    <p class="mt-7 text-[18px] leading-[1.6] text-[#aab0b9] max-w-xl mx-auto">
       Free, open source, MIT licensed. Download the Windows installer or build it
       from source. No account, no telemetry, nothing to subscribe to.
     </p>
 
-    <div class="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
+    <div class="mt-10 flex flex-col sm:flex-row gap-x-6 gap-y-4 justify-center items-center">
       <a
         href={DOWNLOAD_URL}
-        class="inline-flex items-center justify-center gap-2 rounded-lg bg-[color:var(--color-accent)] px-5 py-3 text-sm font-semibold text-[#04140a] hover:brightness-110 transition shadow-[0_8px_24px_-8px_rgba(74,222,128,0.4)]"
+        class="inline-flex items-center gap-2 rounded-lg bg-[#16a34a] px-6 py-3.5 text-[15px] font-semibold text-white hover:bg-[#15913f] transition-colors"
       >
         Download for Windows
+        <span aria-hidden="true">↓</span>
       </a>
       <a
         href={GITHUB_URL}
-        class="inline-flex items-center justify-center gap-2 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-panel)] px-5 py-3 text-sm font-semibold text-white hover:border-white/40 transition"
+        class="group inline-flex items-center gap-1.5 text-[15px] font-medium text-[#e8e8e8] hover:text-[#4ade80] transition-colors"
       >
-        Read the source on GitHub
+        <span class="border-b border-current/40 pb-0.5">Read the source on GitHub</span>
+        <span aria-hidden="true" class="transition-transform group-hover:translate-x-1">→</span>
       </a>
     </div>
   </div>
 </section>
+
+<style>
+  .cta-wall {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0.5;
+  }
+  /* darken the centre so the headline stays crisp over the grid */
+  .cta-veil {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(70% 80% at 50% 50%, #0a0a0a 18%, rgba(10,10,10,0.55) 55%, transparent 100%);
+  }
+</style>
+
+<script>
+  function initTallyWall(section: HTMLElement) {
+    const canvas = section.querySelector<HTMLCanvasElement>("[data-tallywall]");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    let cols = 0, rows = 0, cw = 0, ch = 0, gap = 6, dpr = 1;
+    let pgmCell = 0, pgmAt = 0;
+
+    function layout() {
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const w = section.clientWidth, h = section.clientHeight;
+      canvas.width = Math.max(2, Math.round(w * dpr));
+      canvas.height = Math.max(2, Math.round(h * dpr));
+      const target = 46; // approx cell pitch in CSS px
+      cols = Math.max(6, Math.round(w / target));
+      rows = Math.max(3, Math.round(h / target));
+      cw = (w * dpr) / cols;
+      ch = (h * dpr) / rows;
+      gap = 2 * dpr;
+    }
+
+    function draw(t: number) {
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      const phase = t * 0.00018;            // sweep speed
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const i = y * cols + x;
+          // diagonal travelling wave -> a few cells brighten
+          const wave = Math.sin((x + y) * 0.55 - phase * 6.283 * 8);
+          const lit = Math.max(0, wave) ** 3;            // sharp crests
+          const base = 0.03;
+          let a = base + lit * 0.16;
+          let r = 74, g = 222, b = 128;                  // green signal
+          if (i === pgmCell) { r = 239; g = 68; b = 68; a = 0.5; } // program (red)
+          ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+          const px = x * cw, py = y * ch;
+          ctx.fillRect(px + gap, py + gap, cw - gap * 2, ch - gap * 2);
+        }
+      }
+    }
+
+    // ── lifecycle ──
+    let raf = 0, running = false, onScreen = false;
+    function frame(now: number) {
+      if (!running) return;
+      raf = requestAnimationFrame(frame);
+      if (now - pgmAt > 2200) { pgmCell = Math.floor((Math.sin(now) * 0.5 + 0.5) * cols * rows); pgmAt = now; }
+      draw(now);
+    }
+    function play() { if (running || reduced) return; running = true; raf = requestAnimationFrame(frame); }
+    function pause() { running = false; if (raf) cancelAnimationFrame(raf); raf = 0; }
+
+    layout();
+    if (reduced) { draw(0); }
+    else {
+      const io = new IntersectionObserver((e) => {
+        onScreen = !!e[0]?.isIntersecting;
+        if (onScreen && !document.hidden) { layout(); play(); }
+        else pause();
+      }, { threshold: 0.02 });
+      io.observe(section);
+      document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); else if (onScreen) play(); });
+      const ro = new ResizeObserver(() => layout());
+      ro.observe(section);
+    }
+  }
+
+  const el = document.querySelector<HTMLElement>("[data-cta]");
+  if (el) initTallyWall(el);
+</script>

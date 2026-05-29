@@ -1,0 +1,172 @@
+---
+import Layout   from "../layouts/Layout.astro";
+import Nav      from "../components/Nav.astro";
+import FinalCta from "../components/FinalCta.astro";
+import Footer   from "../components/Footer.astro";
+
+const filmstrip = ["stage", "podium", "closeup", "screen", "audience", "sidestage"];
+
+// Bento feature grid. `wide` = spans two columns on large screens.
+const features = [
+  { title: "Phones become cameras", wide: true,
+    body: "Any phone, webcam, screen, or mic joins from a plain browser over your WiFi — no App Store, no IPA, no APK, no capture card. Just open a URL and tap Join.",
+    tag: "WebRTC · WHIP · zero install" },
+  { title: "Lossless, copy-only",
+    body: "Every angle is recorded at the exact quality the device sent — no re-encoding, near-zero CPU on the laptop.",
+    tag: "H.264 · Opus · fMP4" },
+  { title: "Live operator grid",
+    body: "Watch every feed at once over WHEP. Arm → preview → record, with a synchronized start across all sources.",
+    tag: "synced start" },
+  { title: "Take it to air", wide: true,
+    body: "Press 1–9 — or click a tile — to mark the program take while you record. The switch log captures every cut with its timestamp, ready for the post edit.",
+    tag: "switches.json" },
+  { title: "One-click export",
+    body: "Render the program edit to a single finished MP4: hard cuts or crossfades, per-section audio routing, hardware-accelerated.",
+    tag: "NVENC · QuickSync · AMF" },
+  { title: "External mics",
+    body: "USB or wireless lavaliers join as audio-only. Link a mic to a camera and monitor it in-browser before you record.",
+    tag: "listen · mix · replace" },
+  { title: "Three source types",
+    body: "Camera, screen share, or audio-only — every device chooses its own role at join time.",
+    tag: "camera · screen · mic" },
+  { title: "LAN-only & offline",
+    body: "No cloud, no account, no telemetry. The control service and media stay on the network you control.",
+    tag: "127.0.0.1 · no internet" },
+  { title: "Live bitrate control",
+    body: "Set 4–12 Mbps globally or per camera. Changes apply live — devices adjust mid-session with no reconnect.",
+    tag: "adaptive" },
+  { title: "Pre-flight checks",
+    body: "One tap confirms every camera is live, H.264, has audio, and the disk is writable before you commit to record.",
+    tag: "go / no-go" },
+  { title: "One-click installer",
+    body: "A Windows installer with a tray launcher and a friendly studio.localhost URL. macOS & Linux on the way.",
+    tag: "tray · single-exe" },
+  { title: "Open source, MIT",
+    body: "Read it, fork it, build it from source. Nothing to subscribe to, ever.",
+    tag: "MIT licensed" },
+];
+
+const useCases = [
+  { label: "Church services",        file: "church" },
+  { label: "Conferences",            file: "conference" },
+  { label: "Theater & school plays", file: "theater" },
+  { label: "Live music",             file: "music" },
+  { label: "Sports",                 file: "sports" },
+  { label: "Panel discussions",      file: "panel" },
+  { label: "Podcasts",               file: "podcast" },
+  { label: "Interviews",             file: "interview" },
+];
+---
+
+<Layout title="Features — Wireless Multicam Studio" description="Every feature of Wireless Multicam Studio: phones as cameras, lossless recording, live switching, one-click export, LAN-only and open source.">
+  <Nav />
+  <main class="bg-[#0a0a0a]">
+
+    <!-- Header -->
+    <section class="border-b border-[#1d1f24]">
+      <div class="mx-auto max-w-[1180px] px-6 sm:px-10 pt-20 pb-14 sm:pt-28">
+        <div class="reveal-fade">
+          <div class="eyebrow"><span class="idx">✦</span> Features</div>
+          <h1 class="hd">Everything in the booth — without the booth.</h1>
+          <p class="lede">
+            A full multi-camera control room that runs on a laptop and the phones already in the
+            room. Here's the whole toolkit.
+          </p>
+        </div>
+        <div class="reveal strip">
+          {filmstrip.map((f, i) => (
+            <div class="strip-cell">
+              <img src={`/feeds/cam-${f}.jpg`} alt="" decoding="async" loading="lazy" />
+              <span class="strip-tag">CAM {i + 1}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature bento -->
+    <section class="border-b border-[#1d1f24]">
+      <div class="mx-auto max-w-[1180px] px-6 sm:px-10 py-20 sm:py-24">
+        <div class="reveal bento">
+          {features.map((f) => (
+            <article class={`fcard${f.wide ? " fcard-wide" : ""}`}>
+              <h3 class="fcard-title">{f.title}</h3>
+              <p class="fcard-body">{f.body}</p>
+              <span class="fcard-tag"><span class="fcard-dot"></span>{f.tag}</span>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- Use cases -->
+    <section class="border-b border-[#1d1f24]">
+      <div class="mx-auto max-w-[1180px] px-6 sm:px-10 py-20 sm:py-24">
+        <div class="reveal-fade mb-12 max-w-2xl">
+          <div class="eyebrow"><span class="idx">▸</span> Made for</div>
+          <h2 class="hd2">Wherever there's more than one angle.</h2>
+        </div>
+        <div class="reveal uc-grid">
+          {useCases.map((u) => (
+            <div class="uc">
+              <img src={`/feeds/uc-${u.file}.jpg`} alt={u.label} decoding="async" loading="lazy" />
+              <span class="uc-grad"></span>
+              <span class="uc-label">{u.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <FinalCta />
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.18em;
+    color: #8b929c; margin-bottom: 20px;
+  }
+  .eyebrow .idx { color: #4ade80; border: 1px solid #1f3a2a; background: #0c1a12; border-radius: 5px; padding: 3px 7px; }
+  .hd { color: #f3f4f6; font-weight: 680; letter-spacing: -0.025em; line-height: 1.02; font-size: clamp(40px, 6vw, 76px); max-width: 16ch; }
+  .hd2 { color: #f3f4f6; font-weight: 650; letter-spacing: -0.02em; line-height: 1.04; font-size: clamp(32px, 4.6vw, 56px); max-width: 18ch; }
+  .lede { margin-top: 22px; max-width: 52ch; font-size: clamp(16px, 1.5vw, 19px); line-height: 1.55; color: #aab0b9; }
+
+  /* header filmstrip */
+  .strip { margin-top: 44px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .strip-cell { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; border: 1px solid #23262c; background: #050608; }
+  .strip-cell img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .strip-tag { position: absolute; top: 6px; left: 6px; font: 600 9px/1 var(--font-mono); color: #fff; background: rgba(0,0,0,0.55); border-radius: 4px; padding: 2px 5px; }
+  @media (max-width: 680px) { .strip { grid-template-columns: repeat(3, 1fr); } }
+
+  /* bento */
+  .bento { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .bento { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .bento { grid-template-columns: 1fr; } }
+  .fcard {
+    display: flex; flex-direction: column; gap: 12px;
+    background: #0c0d10; border: 1px solid #1f2228; border-radius: 14px; padding: 22px;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .fcard:hover { border-color: #2a2f37; background: #0e1014; }
+  .fcard-wide { grid-column: span 2; }
+  @media (max-width: 560px) { .fcard-wide { grid-column: span 1; } }
+  .fcard-title { color: #f3f4f6; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+  .fcard-body { color: #9aa0a6; font-size: 14.5px; line-height: 1.6; flex: 1; }
+  .fcard-tag { display: inline-flex; align-items: center; gap: 8px; font: 500 11px/1 var(--font-mono); color: #6f8f78; text-transform: uppercase; letter-spacing: 0.06em; }
+  .fcard-dot { width: 6px; height: 6px; border-radius: 2px; background: #2f7d4f; }
+
+  /* use-case gallery */
+  .uc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 900px) { .uc-grid { grid-template-columns: repeat(2, 1fr); } }
+  .uc {
+    position: relative; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden;
+    border: 1px solid #23262c; background: #050608;
+  }
+  .uc img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .4s ease; }
+  .uc:hover img { transform: scale(1.05); }
+  .uc-grad { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(8,9,11,0.85) 100%); }
+  .uc-label { position: absolute; left: 12px; bottom: 11px; right: 12px; color: #fff; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+</style>

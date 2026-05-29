@@ -1,48 +1,79 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand palette pulled from icon.png:
-     dark near-black background, signal-green primary, record-red accent. */
-  --color-bg:         #0a0b0d;
-  --color-panel:      #121418;
-  --color-panel-2:    #1a1d22;
-  --color-border:     #23262c;
-  --color-text:       #f3f4f6;
-  --color-muted:      #9aa0a6;
-  --color-faint:      #5b6068;
-  --color-accent:     #4ade80; /* green — live / signal */
-  --color-accent-dim: #166534;
-  --color-rec:        #ef4444; /* red — REC indicator only */
-  --color-link:       #93c5fd;
+  /* ----------------------------------------------------------------------
+     The whole site is dark / product-true now — it mirrors the operator
+     dashboard. Green = live / signal. Red = REC / program. One of each.
+     ---------------------------------------------------------------------- */
+  --color-bg:          #0a0a0a; /* page */
+  --color-bg-2:        #0c0d10; /* raised surface */
+  --color-panel:       #121418; /* product-mock panels */
+  --color-panel-2:     #1a1d22;
+  --color-border:      #23262c; /* hairline */
+  --color-border-2:    #2c313a;
+  --color-text:        #f3f4f6; /* headings */
+  --color-body:        #c4c9d0; /* body copy */
+  --color-muted:       #8b929c; /* captions / secondary */
+  --color-faint:       #5b6068;
+  --color-accent:      #4ade80; /* live / signal */
+  --color-accent-2:    #16a34a; /* solid green — buttons */
+  --color-accent-deep: #15913f;
+  --color-accent-dim:  #166534;
+  --color-rec:         #ef4444; /* REC / program */
+  --color-rec-2:       #dc2626;
+  --color-link:        #93c5fd;
 
   --font-sans: "Inter", "Inter Display", ui-sans-serif, system-ui, -apple-system,
                BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 
-:root {
-  color-scheme: dark;
-}
+:root { color-scheme: dark; }
+
+/* Smooth in-page nav; offset so anchored sections clear the sticky header. */
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
 html, body {
   background: var(--color-bg);
-  color: var(--color-text);
+  color: var(--color-body);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-::selection {
-  background: color-mix(in oklab, var(--color-accent) 35%, transparent);
-  color: white;
-}
+/* Guard against accidental horizontal scroll on phones. Scoped below the
+   desktop breakpoint so it never interferes with the pinned-scroll section. */
+@media (max-width: 899px) { body { overflow-x: hidden; } }
 
-/* Hero REC dot — slow steady pulse. Single piece of motion in the hero. */
+::selection { background: var(--color-accent); color: #04140a; }
+
+/* REC dot — slow pulse, used inside the product mockups. */
 @keyframes rec-pulse {
   0%, 100% { opacity: 1;   transform: scale(1); }
   50%      { opacity: 0.55; transform: scale(0.85); }
 }
-.rec-dot {
-  animation: rec-pulse 1.6s ease-in-out infinite;
-}
+.rec-dot { animation: rec-pulse 1.6s ease-in-out infinite; }
 
+/* ------------------------------------------------------------------------
+   Scroll reveal — IntersectionObserver driven (robust). Content is fully
+   visible by default; it is only "armed" (hidden, then revealed on scroll)
+   when JS is present AND motion is allowed — signalled by `html.js-anim`,
+   set by an inline head script. So content can NEVER get stuck hidden for
+   no-JS, unsupported, or reduced-motion users.
+   ------------------------------------------------------------------------ */
+html.js-anim .reveal      { opacity: 0; transform: translateY(22px); transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
+html.js-anim .reveal-fade { opacity: 0; transition: opacity 0.6s ease; }
+html.js-anim .reveal.is-in,
+html.js-anim .reveal-fade.is-in { opacity: 1; transform: none; }
+
+/* A travelling "signal" pulse used on connector lines / hairlines. */
+@keyframes signal-travel { to { background-position: 0 -200%; } }
+
+/* Marquee (use-case ribbon). Pauses on hover; static under reduced motion. */
+@keyframes marquee { to { transform: translateX(-50%); } }
+.marquee-track { animation: marquee 36s linear infinite; }
+.marquee:hover .marquee-track { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; transform: none; }
+}

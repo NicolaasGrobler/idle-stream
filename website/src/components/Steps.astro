@@ -1,69 +1,199 @@
 ---
+import MonitorFrame from "./MonitorFrame.astro";
 import StepOpenUrl  from "./step-visuals/StepOpenUrl.astro";
 import StepArm      from "./step-visuals/StepArm.astro";
 import StepRecord   from "./step-visuals/StepRecord.astro";
 import StepCut      from "./step-visuals/StepCut.astro";
 
 const steps = [
-  {
-    n: "01",
-    title: "Open a URL.",
-    body: "Devices join from any phone or laptop browser. No App Store, no IPA, no APK. Camera, screen share, or audio-only — your call.",
-    visual: "open-url",
-  },
-  {
-    n: "02",
-    title: "Arm & frame.",
-    body: "Every assigned camera streams live to your laptop over the LAN. Frame every angle in the live grid before you commit to record.",
-    visual: "arm",
-  },
-  {
-    n: "03",
-    title: "Record losslessly.",
-    body: "Every angle records copy-only — no re-encoding. Near-zero CPU on the laptop. The phones do the work.",
-    visual: "record",
-  },
-  {
-    n: "04",
-    title: "Cut in post.",
-    body: "Press 1–9 to mark the program take while you record. Export the program edit as one MP4, or keep the per-angle masters.",
-    visual: "cut",
-  },
+  { n: "01", title: "Open a URL.",
+    body: "Devices join from any phone or laptop browser. No App Store, no IPA, no APK — just a link on the LAN.",
+    meta: ["No install", "iOS · Android · laptop", "Camera · screen · mic"], visual: "open-url" },
+  { n: "02", title: "Arm & frame.",
+    body: "Every assigned camera streams live to your laptop over the LAN. Frame each angle in the grid before you commit to record.",
+    meta: ["Live LAN preview", "Per-camera bitrate", "Pre-flight checks"], visual: "arm" },
+  { n: "03", title: "Record losslessly.",
+    body: "Every angle records copy-only — no re-encoding. Near-zero CPU on the laptop; the phones do the work.",
+    meta: ["Copy-only", "Near-zero CPU", "Per-angle masters"], visual: "record" },
+  { n: "04", title: "Cut in post.",
+    body: "Press 1–9 to mark the program take while you record. Export the edit as one MP4, or keep the per-angle masters.",
+    meta: ["Press 1–9 to take", "switches.json log", "Export one MP4"], visual: "cut" },
 ];
 ---
 
-<section id="how-it-works" class="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-  <div class="mb-16 max-w-2xl">
-    <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-accent)] mb-3">
-      How it works
-    </div>
-    <h2 class="text-4xl sm:text-5xl font-semibold tracking-tight text-white leading-[1.05]">
-      Four steps from phones to a finished cut.
-    </h2>
+<section id="how-it-works" class="hs" data-hsteps>
+  <div class="hs-intro reveal-fade">
+    <div class="eyebrow"><span class="idx">01</span> How it works</div>
+    <h2 class="hd">Four steps from phones to a finished cut.</h2>
+    <p class="hs-hint"><span class="hs-hint-dot"></span>Keep scrolling — the steps move sideways</p>
   </div>
 
-  <div class="space-y-24 sm:space-y-32">
-    {steps.map((s, i) => (
-      <div class={`grid items-center gap-10 md:grid-cols-2 ${i % 2 === 1 ? "md:[&>*:first-child]:order-2" : ""}`}>
-        <div>
-          <div class="flex items-center gap-3 mb-4">
-            <span class="font-mono text-[12px] text-[color:var(--color-muted)]">{s.n}</span>
-            <span class="h-px flex-1 bg-[color:var(--color-border)] max-w-[80px]"></span>
-          </div>
-          <h3 class="text-3xl sm:text-4xl font-semibold tracking-tight text-white leading-[1.1]">
-            {s.title}
-          </h3>
-          <p class="mt-5 text-[16px] leading-relaxed text-[color:var(--color-muted)] max-w-md">
-            {s.body}
-          </p>
-        </div>
-        <div>
-          {s.visual === "open-url" && <StepOpenUrl />}
-          {s.visual === "arm"      && <StepArm />}
-          {s.visual === "record"   && <StepRecord />}
-          {s.visual === "cut"      && <StepCut />}
-        </div>
+  <div class="hs-outer" data-outer>
+    <div class="hs-sticky" data-sticky>
+      <div class="hs-track" data-track>
+        {steps.map((s) => (
+          <article class="hstep" data-panel>
+            <span class="hstep-ghost" data-ghost aria-hidden="true">{s.n}</span>
+            <div class="hstep-inner">
+              <div class="hstep-copy">
+                <div class="hstep-num"><span class="cur">{s.n}</span><span class="tot">/ 04</span></div>
+                <h3 class="hstep-title">{s.title}</h3>
+                <p class="hstep-body">{s.body}</p>
+                <ul class="hstep-meta">
+                  {s.meta.map((m) => <li><span class="hstep-tick"></span>{m}</li>)}
+                </ul>
+              </div>
+              <figure class="hstep-fig" data-fig aria-hidden="true">
+                {s.visual === "open-url" && <StepOpenUrl />}
+                {s.visual === "arm" && (
+                  <MonitorFrame url="studio.localhost" tail=" · Operator" pill="6 armed" tone="live"><StepArm /></MonitorFrame>
+                )}
+                {s.visual === "record" && (
+                  <MonitorFrame url="~/recordings" pill="REC 03:52" tone="rec"><StepRecord /></MonitorFrame>
+                )}
+                {s.visual === "cut" && (
+                  <MonitorFrame url="studio.localhost" tail=" · Switch log" pill="export" tone="live"><StepCut /></MonitorFrame>
+                )}
+              </figure>
+            </div>
+          </article>
+        ))}
       </div>
-    ))}
+      <div class="hs-progress" data-progress aria-hidden="true">
+        <span class="hs-prog-label" data-proglabel>01 / 04</span>
+        <div class="hs-prog-track"><i></i></div>
+      </div>
+    </div>
   </div>
 </section>
+
+<style>
+  .hs { position: relative; border-top: 1px solid #1d1f24; background: #0a0a0a; }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.18em;
+    color: #8b929c; margin-bottom: 20px;
+  }
+  .eyebrow .idx { color: #4ade80; border: 1px solid #1f3a2a; background: #0c1a12; border-radius: 5px; padding: 3px 6px; }
+  .hd { color: #f3f4f6; font-weight: 650; letter-spacing: -0.02em; line-height: 1.04; font-size: clamp(34px, 5vw, 60px); max-width: 16ch; }
+
+  .hs-intro { max-width: 1480px; margin: 0 auto; padding: clamp(5rem, 10vw, 8rem) clamp(24px, 7vw, 120px) 0; }
+  .hs-hint { display: none; margin-top: 22px; align-items: center; gap: 8px; font: 500 13px/1 var(--font-mono); color: #6f757e; }
+  .hs-hint-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.6); }
+
+  .hs-track { display: flex; flex-direction: column; gap: clamp(4rem, 9vw, 8rem); padding: 3rem 0 6rem; }
+
+  .hstep { position: relative; }
+  .hstep-ghost {
+    position: absolute; top: 50%; left: clamp(8px, 4vw, 70px); transform: translateY(-50%);
+    font: 800 clamp(150px, 30vh, 380px)/0.8 var(--font-sans); letter-spacing: -0.05em;
+    color: rgba(255, 255, 255, 0.022); z-index: 0; pointer-events: none; user-select: none;
+  }
+  .hstep-inner {
+    position: relative; z-index: 1; max-width: 1560px; margin: 0 auto;
+    padding: 0 clamp(24px, 7vw, 110px);
+    display: grid; gap: clamp(2.25rem, 4.5vw, 5.5rem); align-items: center;
+  }
+  @media (min-width: 768px) { .hstep-inner { grid-template-columns: 0.86fr 1.14fr; } }
+
+  .hstep-num { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; }
+  .hstep-num .cur { font: 600 clamp(38px,4.4vw,64px)/1 var(--font-mono); color: #4ade80; text-shadow: 0 0 28px rgba(74,222,128,0.3); }
+  .hstep-num .tot { font: 500 18px/1 var(--font-mono); color: #5b6068; }
+  .hstep-title { color: #f3f4f6; font-weight: 650; letter-spacing: -0.015em; line-height: 1.06; font-size: clamp(30px, 3.6vw, 54px); }
+  .hstep-body { margin-top: 20px; font-size: clamp(16px, 1.35vw, 19px); line-height: 1.62; color: #aab0b9; max-width: 40ch; }
+  .hstep-meta { list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .hstep-meta li {
+    display: inline-flex; align-items: center; gap: 7px;
+    font: 500 12px/1 var(--font-mono); color: #c4c9d0;
+    border: 1px solid #23262c; background: #101216; border-radius: 999px; padding: 6px 11px;
+  }
+  .hstep-tick { width: 6px; height: 6px; border-radius: 2px; background: #2f7d4f; }
+
+  .hstep-fig { will-change: transform; }
+
+  .hs-progress { display: none; }
+
+  /* ── Horizontal pinned mode ── */
+  .hs.is-horizontal .hs-hint { display: inline-flex; }
+  .hs.is-horizontal .hs-outer { position: relative; }
+  .hs.is-horizontal .hs-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; display: flex; align-items: center; }
+  .hs.is-horizontal .hs-track { flex-direction: row; gap: 0; padding: 0; width: max-content; will-change: transform; }
+  .hs.is-horizontal .hstep { width: 100vw; flex: none; display: flex; align-items: center; }
+  .hs.is-horizontal .hs-progress {
+    display: flex; align-items: center; gap: 14px;
+    position: absolute; left: clamp(40px, 7vw, 120px); right: clamp(40px, 7vw, 120px);
+    bottom: clamp(28px, 6vh, 60px);
+  }
+  .hs.is-horizontal .hs-prog-label { font: 600 11px/1 var(--font-mono); color: #6f757e; letter-spacing: 0.1em; flex: none; }
+  .hs.is-horizontal .hs-prog-track { position: relative; flex: 1; height: 2px; background: #23262c; border-radius: 2px; }
+  .hs.is-horizontal .hs-prog-track > i {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 2px;
+    background: linear-gradient(90deg, #4ade80, #16a34a); box-shadow: 0 0 12px rgba(74,222,128,0.5);
+  }
+
+  @media (max-width: 767px) { .hstep-ghost { font-size: 120px; opacity: 0.7; } }
+</style>
+
+<script>
+  // Pinned horizontal scroll: native vertical scroll mapped to a horizontal
+  // translate (no wheel-hijacking), with light per-panel parallax. Enabled only
+  // on wide viewports without reduced-motion; otherwise the vertical stack shows.
+  const sec = document.querySelector<HTMLElement>("[data-hsteps]");
+  if (sec) {
+    const outer = sec.querySelector<HTMLElement>("[data-outer]")!;
+    const track = sec.querySelector<HTMLElement>("[data-track]")!;
+    const fill = sec.querySelector<HTMLElement>("[data-progress] i");
+    const label = sec.querySelector<HTMLElement>("[data-proglabel]");
+    const panels = Array.from(sec.querySelectorAll<HTMLElement>("[data-panel]")).map((p) => ({
+      ghost: p.querySelector<HTMLElement>("[data-ghost]"),
+      fig: p.querySelector<HTMLElement>("[data-fig]"),
+    }));
+    const N = panels.length;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let horizontal = false, travel = 0, ticking = false;
+
+    function measure() {
+      travel = Math.max(0, track.scrollWidth - window.innerWidth);
+      outer.style.height = `${window.innerHeight + travel}px`;
+    }
+    function update() {
+      if (!horizontal) return;
+      const y = -outer.getBoundingClientRect().top;
+      const p = travel > 0 ? Math.min(Math.max(y / travel, 0), 1) : 0;
+      track.style.transform = `translate3d(${-p * travel}px,0,0)`;
+      if (fill) fill.style.width = `${p * 100}%`;
+      if (label) label.textContent = `0${Math.min(N, Math.round(p * (N - 1)) + 1)} / 0${N}`;
+      // parallax: off=0 when a panel is centred; ghost lags, figure leads slightly
+      const span = N - 1;
+      for (let i = 0; i < N; i++) {
+        const off = i - p * span;
+        if (panels[i].ghost) panels[i].ghost!.style.transform = `translate(${off * -90}px,-50%)`;
+        if (panels[i].fig) panels[i].fig!.style.transform = `translateX(${off * 26}px)`;
+      }
+    }
+    function enable() { sec.classList.add("is-horizontal"); horizontal = true; measure(); update(); }
+    function disable() {
+      sec.classList.remove("is-horizontal"); horizontal = false;
+      outer.style.height = ""; track.style.transform = "";
+      if (fill) fill.style.width = "";
+      panels.forEach((p) => { if (p.ghost) p.ghost.style.transform = ""; if (p.fig) p.fig.style.transform = ""; });
+    }
+    function decide() {
+      const want = window.innerWidth >= 900 && !mq.matches;
+      if (want && !horizontal) enable();
+      else if (!want && horizontal) disable();
+      else if (horizontal) { measure(); update(); }
+    }
+
+    decide();
+    window.addEventListener("resize", decide, { passive: true });
+    window.addEventListener("scroll", () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => { update(); ticking = false; });
+    }, { passive: true });
+    if (mq.addEventListener) mq.addEventListener("change", decide);
+    new ResizeObserver(() => { if (horizontal) { measure(); update(); } }).observe(track);
+  }
+</script>

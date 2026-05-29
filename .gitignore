@@ -2,6 +2,9 @@
 certs/
 *.pem
 *.key
+.higgsfield.env
+.env
+*.env.local
 
 # Downloaded binaries (re-fetch with setup/fetch-tools.ps1)
 tools/
@@ -26,6 +29,9 @@ mediamtx/mediamtx.gen.yml
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# Lazyweb design-research scratch
+.lazyweb/
 
 # Node
 node_modules/

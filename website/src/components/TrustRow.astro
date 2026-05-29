@@ -7,49 +7,43 @@ const builtOn = [
 ];
 
 const usedFor = [
-  "Church services",
-  "Conferences",
-  "Theater & school plays",
-  "Live music",
-  "Sports",
-  "Panel discussions",
-  "Podcasts",
-  "Interviews",
+  "Church services", "Conferences", "Theater & school plays", "Live music",
+  "Sports", "Panel discussions", "Podcasts", "Interviews",
 ];
+
+const lbl = "font-mono text-[11px] uppercase tracking-[0.18em] text-[#6f757e] shrink-0";
 ---
 
-<section class="border-y border-[color:var(--color-border)] bg-[color:var(--color-panel)]/40">
-  <div class="mx-auto max-w-6xl px-6 py-10 grid gap-10 md:grid-cols-2">
-    <div>
-      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-4">
-        Built on
-      </div>
-      <div class="flex flex-wrap gap-x-6 gap-y-3">
-        {builtOn.map((b) => (
-          <a
-            href={b.href}
-            class="text-[15px] font-mono text-[color:var(--color-text)]/80 hover:text-white transition-colors"
-          >
-            {b.name}
-          </a>
-        ))}
-      </div>
+<section class="border-y border-[#1d1f24] bg-[#0c0d10] overflow-hidden">
+  <div class="mx-auto max-w-[1240px] px-6 sm:px-10 py-8">
+
+    <!-- Built on — centered, bordered chips, all lit green -->
+    <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+      <span class={lbl}>Built&nbsp;on</span>
+      {builtOn.map((b) => (
+        <a
+          href={b.href}
+          class="inline-flex items-center gap-2 whitespace-nowrap rounded-[7px] border border-[#23262c] bg-[#101216] px-[11px] py-1.5 text-[13px] text-[#c4c9d0] no-underline transition-colors hover:border-[#2f7d4f] hover:text-white"
+        >
+          <span class="size-[7px] rounded-[2px] bg-[#4ade80] shadow-[0_0_6px_rgba(74,222,128,0.55)]"></span>{b.name}
+        </a>
+      ))}
     </div>
 
-    <div>
-      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-4">
-        Used for
-      </div>
-      <div class="flex flex-wrap gap-x-2 gap-y-2">
-        {usedFor.map((u, i) => (
-          <span class={`inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] ${
-            i === 0
-              ? "border-[color:var(--color-accent)]/40 bg-[color:var(--color-accent)]/10 text-[color:var(--color-accent)]"
-              : "border-[color:var(--color-border)] bg-[color:var(--color-panel)] text-[color:var(--color-muted)]"
-          }`}>
-            {u}
-          </span>
-        ))}
+    <!-- Used for — a distinct, plain-text scrolling ticker with dot separators -->
+    <div class="mt-6 flex items-center justify-center gap-4">
+      <span class={`${lbl}`}>Used&nbsp;for</span>
+      <div
+        class="marquee relative max-w-[640px] overflow-hidden"
+        style="mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);"
+      >
+        <div class="marquee-track flex w-max items-center whitespace-nowrap will-change-transform">
+          {[...usedFor, ...usedFor].map((u) => (
+            <span class="inline-flex items-center gap-2.5 px-5 text-[15px] text-[#aab0b9]">
+              <span class="size-[5px] rounded-full bg-[#4ade80]/70"></span>{u}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   </div>

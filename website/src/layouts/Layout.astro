@@ -18,13 +18,10 @@ const {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#0a0b0d" />
+    <meta name="theme-color" content="#0a0a0a" />
 
     <link rel="icon" type="image/png" href="/icon.png" />
-    <link
-      rel="preconnect"
-      href="https://rsms.me/"
-    />
+    <link rel="preconnect" href="https://rsms.me/" />
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
 
     <meta property="og:type" content="website" />
@@ -34,8 +31,36 @@ const {
     <meta name="twitter:card" content="summary_large_image" />
 
     <title>{title}</title>
+
+    <!-- Arm scroll-reveal BEFORE paint (no flash) only when motion is allowed
+         and IntersectionObserver exists. Without this class, .reveal content
+         stays fully visible — so it can never get stuck hidden. -->
+    <script is:inline>
+      if (
+        window.matchMedia &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+        "IntersectionObserver" in window
+      ) {
+        document.documentElement.classList.add("js-anim");
+      }
+    </script>
   </head>
   <body class="min-h-screen antialiased">
     <slot />
   </body>
+
+  <script>
+    // Reveal each .reveal / .reveal-fade element when it scrolls into view.
+    if (document.documentElement.classList.contains("js-anim")) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); }
+          }
+        },
+        { rootMargin: "0px 0px -8% 0px", threshold: 0.06 },
+      );
+      document.querySelectorAll(".reveal, .reveal-fade").forEach((el) => io.observe(el));
+    }
+  </script>
 </html>

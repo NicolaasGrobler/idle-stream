@@ -1,43 +1,47 @@
 ---
 import { GITHUB_URL } from "../config";
+const year = new Date().getFullYear();
 ---
 
-<footer class="border-t border-[color:var(--color-border)] bg-[color:var(--color-panel)]/30">
-  <div class="mx-auto max-w-6xl px-6 py-10 grid gap-8 md:grid-cols-3 text-[13px]">
+<footer class="border-t border-[#1d1f24] bg-[#0c0d10]">
+  <div class="mx-auto max-w-[1240px] px-6 sm:px-10 py-14 grid gap-10 md:grid-cols-3">
+
     <div>
       <div class="flex items-center gap-2.5">
-        <img src="/icon.png" alt="" width="22" height="22" class="rounded" />
-        <span class="font-semibold text-white">Wireless Multicam Studio</span>
+        <img src="/icon.png" alt="" width="22" height="22" class="rounded-[4px]" />
+        <span class="text-[16px] font-semibold tracking-[-0.01em] text-[#f3f4f6]">Wireless Multicam Studio</span>
       </div>
-      <p class="mt-3 text-[color:var(--color-muted)] max-w-xs">
-        Open-source, LAN-only multi-camera recording.
-        Built by <a href="https://github.com/openidle-dev" class="text-[color:var(--color-text)]/80 hover:text-white underline-offset-4 hover:underline">Nicolaas Grobler</a> and contributors.
+      <p class="mt-4 text-[14px] leading-[1.65] text-[#9aa0a6] max-w-xs">
+        Open-source, LAN-only multi-camera recording. Built by
+        <a href="https://github.com/openidle-dev" class="text-[#c4c9d0] hover:text-[#4ade80] underline underline-offset-4 decoration-[#2c313a] transition-colors">Nicolaas Grobler</a>
+        and contributors.
       </p>
     </div>
 
     <div>
-      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-3">Project</div>
-      <ul class="space-y-1.5 text-[color:var(--color-text)]/80">
-        <li><a href={GITHUB_URL} class="hover:text-white transition-colors">GitHub repository</a></li>
-        <li><a href={`${GITHUB_URL}/blob/main/README.md`} class="hover:text-white transition-colors">README</a></li>
-        <li><a href={`${GITHUB_URL}/blob/main/plan.md`} class="hover:text-white transition-colors">Design doc (plan.md)</a></li>
-        <li><a href={`${GITHUB_URL}/blob/main/SECURITY.md`} class="hover:text-white transition-colors">Security model</a></li>
+      <div class="text-[11px] font-mono uppercase tracking-[0.18em] text-[#6f757e] mb-4">Project</div>
+      <ul class="space-y-2.5 text-[14px] text-[#aab0b9]">
+        <li><a href={GITHUB_URL} class="hover:text-[#4ade80] transition-colors">GitHub repository</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/README.md`} class="hover:text-[#4ade80] transition-colors">README</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/plan.md`} class="hover:text-[#4ade80] transition-colors">Design doc (plan.md)</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/SECURITY.md`} class="hover:text-[#4ade80] transition-colors">Security model</a></li>
       </ul>
     </div>
 
     <div>
-      <div class="text-[11px] uppercase tracking-[0.18em] text-[color:var(--color-muted)] mb-3">Community</div>
-      <ul class="space-y-1.5 text-[color:var(--color-text)]/80">
-        <li><a href={`${GITHUB_URL}/issues`} class="hover:text-white transition-colors">Issues &amp; bug reports</a></li>
-        <li><a href={`${GITHUB_URL}/issues/1`} class="hover:text-white transition-colors">macOS / Linux help wanted</a></li>
-        <li><a href={`${GITHUB_URL}/blob/main/LICENSE`} class="hover:text-white transition-colors">MIT license</a></li>
+      <div class="text-[11px] font-mono uppercase tracking-[0.18em] text-[#6f757e] mb-4">Community</div>
+      <ul class="space-y-2.5 text-[14px] text-[#aab0b9]">
+        <li><a href={`${GITHUB_URL}/issues`} class="hover:text-[#4ade80] transition-colors">Issues &amp; bug reports</a></li>
+        <li><a href={`${GITHUB_URL}/issues/1`} class="hover:text-[#4ade80] transition-colors">macOS / Linux help wanted</a></li>
+        <li><a href={`${GITHUB_URL}/blob/main/LICENSE`} class="hover:text-[#4ade80] transition-colors">MIT license</a></li>
       </ul>
     </div>
   </div>
 
-  <div class="border-t border-[color:var(--color-border)]">
-    <div class="mx-auto max-w-6xl px-6 py-5 text-[12px] text-[color:var(--color-muted)]">
-      © {new Date().getFullYear()} — Wireless Multicam Studio. MIT.
+  <div class="border-t border-[#1d1f24]">
+    <div class="mx-auto max-w-[1240px] px-6 sm:px-10 py-5 flex items-center justify-between gap-4 text-[13px] text-[#6f757e]">
+      <span class="font-mono">© {year} · Wireless Multicam Studio · MIT</span>
+      <span class="hidden sm:inline-flex items-center gap-1.5 font-mono"><span class="size-1.5 rounded-full bg-[#4ade80]"></span>LAN-only · offline</span>
     </div>
   </div>
 </footer>

@@ -1,48 +1,96 @@
 ---
-// Step 1 placeholder — replace with a screen recording of the device page (phone)
-// once you have one. File would go in public/demos/step-01-open-url.mp4 and be
-// wrapped in a phone frame here.
+// Step 1 — the device page on a phone. A crafted CSS device frame (live + crisp
+// at any DPR, no external image) holding the join screen.
 ---
 
-<div class="relative mx-auto w-full max-w-sm">
-  <!-- Phone frame -->
-  <div class="aspect-[9/19.5] rounded-[36px] border border-[color:var(--color-border)] bg-[color:var(--color-panel)] p-2 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)]">
-    <div class="size-full rounded-[28px] bg-[color:var(--color-bg)] overflow-hidden flex flex-col">
-      <!-- Notch -->
-      <div class="h-7 flex items-center justify-center">
-        <div class="h-1 w-16 rounded-full bg-black"></div>
-      </div>
-      <!-- URL bar -->
-      <div class="px-3 py-2 border-b border-[color:var(--color-border)]">
-        <div class="flex items-center gap-2 rounded-md bg-[color:var(--color-panel-2)] px-2.5 py-1.5 text-[11px] font-mono text-[color:var(--color-muted)]">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-            <rect x="3" y="11" width="18" height="11" rx="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-          <span>192.168.1.42:8443</span>
-        </div>
-      </div>
-      <!-- Page content -->
-      <div class="flex-1 flex flex-col items-center justify-center px-5 text-center gap-5">
-        <img src="/icon.png" alt="" width="56" height="56" class="rounded-xl" />
-        <div>
-          <div class="text-[11px] uppercase tracking-wider text-[color:var(--color-muted)]">Join as</div>
-          <div class="mt-1 text-base font-semibold text-white">Stage Left Cam</div>
-        </div>
-        <div class="w-full space-y-2">
-          <div class="rounded-md bg-[color:var(--color-accent)]/10 border border-[color:var(--color-accent)]/40 px-3 py-2 text-left">
-            <div class="text-[10px] uppercase tracking-wider text-[color:var(--color-accent)]">Source</div>
-            <div class="text-[13px] text-white">Back camera · 1080p</div>
-          </div>
-          <div class="rounded-md bg-[color:var(--color-panel-2)] border border-[color:var(--color-border)] px-3 py-2 text-left">
-            <div class="text-[10px] uppercase tracking-wider text-[color:var(--color-muted)]">Or</div>
-            <div class="text-[12px] text-[color:var(--color-muted)]">Screen share · Audio-only</div>
-          </div>
-        </div>
-        <button class="w-full rounded-md bg-[color:var(--color-accent)] py-2.5 text-sm font-semibold text-[#04140a]">
-          Join
-        </button>
-      </div>
+<div class="dev">
+  <span class="dev-btn dev-vol"></span>
+  <span class="dev-btn dev-pwr"></span>
+  <div class="dev-screen">
+    <div class="dev-island"><span class="dev-cam"></span></div>
+
+    <div class="dev-urlbar">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+        <rect x="3" y="11" width="18" height="11" rx="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+      <span>192.168.1.42:8443</span>
     </div>
+
+    <div class="dev-page">
+      <img src="/icon.png" alt="" width="54" height="54" class="dev-logo" />
+      <div>
+        <div class="dev-kicker">Join as</div>
+        <div class="dev-name">Stage Left Cam</div>
+      </div>
+      <div class="dev-opts">
+        <div class="dev-opt dev-opt-sel">
+          <div class="dev-opt-lbl on">Source</div>
+          <div class="dev-opt-val">Back camera · 1080p</div>
+        </div>
+        <div class="dev-opt">
+          <div class="dev-opt-lbl">Or</div>
+          <div class="dev-opt-val dim">Screen share · Audio-only</div>
+        </div>
+      </div>
+      <button class="dev-join">Join</button>
+    </div>
+
+    <span class="dev-glass" aria-hidden="true"></span>
   </div>
 </div>
+
+<style>
+  .dev {
+    position: relative; width: 100%; max-width: 256px; margin-inline: auto;
+    aspect-ratio: 9 / 19.5; border-radius: 46px; padding: 9px;
+    background: linear-gradient(150deg, #34373d 0%, #1b1d22 38%, #101216 72%, #2a2d33 100%);
+    box-shadow:
+      0 0 0 1px #000,
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 1px rgba(255, 255, 255, 0.18),
+      0 44px 70px -34px rgba(0, 0, 0, 0.85),
+      0 12px 30px -18px rgba(0, 0, 0, 0.7);
+  }
+  /* side buttons */
+  .dev-btn { position: absolute; left: -2px; width: 3px; border-radius: 3px 0 0 3px; background: #16181c; box-shadow: inset 1px 0 1px rgba(255,255,255,0.06); }
+  .dev-vol { top: 22%; height: 9%; }
+  .dev-pwr { left: auto; right: -2px; top: 26%; height: 12%; border-radius: 0 3px 3px 0; }
+
+  .dev-screen {
+    position: relative; height: 100%; border-radius: 38px; overflow: hidden;
+    background: radial-gradient(120% 80% at 50% 0%, #14161b, #0a0a0a 70%);
+    display: flex; flex-direction: column;
+  }
+  .dev-island {
+    position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
+    width: 78px; height: 22px; border-radius: 14px; background: #000; z-index: 4;
+    display: flex; align-items: center; justify-content: flex-end; padding-right: 9px;
+  }
+  .dev-cam { width: 6px; height: 6px; border-radius: 50%; background: #1c2230; box-shadow: inset 0 0 2px #2e3a52; }
+
+  .dev-urlbar {
+    margin: 46px 12px 0; display: flex; align-items: center; gap: 7px;
+    background: #1a1d22; border: 1px solid #23262c; border-radius: 9px; padding: 7px 10px;
+    font-family: var(--font-mono); font-size: 11px; color: #8b929c;
+  }
+
+  .dev-page { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 0 16px 22px; text-align: center; }
+  .dev-logo { border-radius: 13px; }
+  .dev-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: #8b929c; }
+  .dev-name { margin-top: 3px; font-size: 17px; font-weight: 600; color: #fff; }
+  .dev-opts { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .dev-opt { text-align: left; border-radius: 9px; padding: 8px 11px; background: #141619; border: 1px solid #23262c; }
+  .dev-opt-sel { background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.4); }
+  .dev-opt-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: #8b929c; }
+  .dev-opt-lbl.on { color: #4ade80; }
+  .dev-opt-val { margin-top: 2px; font-size: 13px; color: #fff; }
+  .dev-opt-val.dim { color: #8b929c; }
+  .dev-join { width: 100%; border-radius: 9px; padding: 11px; background: #16a34a; color: #fff; font-size: 14px; font-weight: 600; border: none; }
+
+  /* glass sheen */
+  .dev-glass {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5; border-radius: 38px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 26%, transparent 100%);
+  }
+</style>
