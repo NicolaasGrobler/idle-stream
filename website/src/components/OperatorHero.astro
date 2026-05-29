@@ -122,8 +122,7 @@ const logSlots = 5;
 
       <figcaption class="oh-cap">
         <span class="oh-cap-key">▶</span>
-        The actual dashboard, running live. Press <kbd>1</kbd>–<kbd>6</kbd> or click a
-        feed to take it to air — the switch log records every cut for the post edit.
+        The actual dashboard, running live. <span class="oh-cap-keys">Press <kbd>1</kbd>–<kbd>6</kbd> or click a feed</span><span class="oh-cap-tap">Tap a feed</span> to take it to air — the switch log records every cut for the post edit.
       </figcaption>
 
       <p class="oh-sr" data-live aria-live="polite"></p>
@@ -230,12 +229,13 @@ const logSlots = 5;
     background: #121316;
     border-bottom: 1px solid #1f2228;
   }
-  .oh-dots { display: flex; gap: 6px; }
+  .oh-dots { display: flex; gap: 6px; flex: none; }
   .oh-dots i { width: 11px; height: 11px; border-radius: 50%; background: #2c2f36; display: block; }
   .oh-url {
     font-family: var(--font-mono); font-size: 12px; color: #b9bec6;
     background: #0c0d10; border: 1px solid #23262c; border-radius: 7px;
-    padding: 4px 12px; flex: 0 1 auto;
+    padding: 4px 12px; flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .oh-url-dim { color: #6a707a; }
   .oh-livepill {
@@ -342,6 +342,7 @@ const logSlots = 5;
     font-size: 13.5px; line-height: 1.55; color: #8b929c;
   }
   .oh-cap-key { color: #4ade80; margin-right: 4px; }
+  .oh-cap-tap { display: none; }
   .oh-cap kbd {
     font-family: var(--font-mono); font-size: 11px; color: #d4d8de;
     background: #17181b; border: 1px solid #2a2f37; border-radius: 4px; padding: 1px 5px;
@@ -367,10 +368,14 @@ const logSlots = 5;
     .oh-grid { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 560px) {
-    .oh-window { margin-top: 30px; }
+    .oh-fig { margin-top: 30px; }
     .oh-side { display: none; }
     .oh-stats, .oh-state { display: none; }
     .oh-head-title { display: none; }
+    .oh-dots { display: none; }         /* free space so the URL shows in full */
+    .oh-url-dim { display: none; }      /* show just "studio.localhost" — no wrap */
+    .oh-cap-keys { display: none; }     /* touchscreen: tap, don't "press 1-6" */
+    .oh-cap-tap { display: inline; }
   }
   @media (prefers-reduced-motion: reduce) {
     .oh-recdot, .oh-livepill-dot { animation: none; }

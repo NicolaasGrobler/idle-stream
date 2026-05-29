@@ -43,8 +43,10 @@ html, body {
 }
 
 /* Guard against accidental horizontal scroll on phones. Scoped below the
-   desktop breakpoint so it never interferes with the pinned-scroll section. */
-@media (max-width: 899px) { body { overflow-x: hidden; } }
+   desktop breakpoint so it never interferes with the pinned-scroll section.
+   `clip` (not hidden) avoids creating a scroll container that could break
+   position:sticky, and is applied to html + body for reliable behaviour. */
+@media (max-width: 899px) { html, body { overflow-x: clip; } }
 
 ::selection { background: var(--color-accent); color: #04140a; }
 

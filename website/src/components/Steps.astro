@@ -133,6 +133,11 @@ const steps = [
   }
 
   @media (max-width: 767px) { .hstep-ghost { font-size: 120px; opacity: 0.7; } }
+  /* Mobile: let the grid items shrink to the viewport (no horizontal overflow). */
+  @media (max-width: 899px) {
+    .hstep-copy, .hstep-fig { min-width: 0; }
+    .hstep-inner { overflow: hidden; }
+  }
 </style>
 
 <script>
