@@ -20,7 +20,7 @@ const EXE = join(DIST, 'multicam.exe');
 const ICO = join(DIST, 'multicam.ico');
 const ISS = join(DIST, 'installer.iss');
 const APP_ID = '{{B3F1B8E2-7C4A-4E9D-9B1F-1A2C3D4E5F60}'; // stable -> upgrades/uninstall track
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 
 if (process.platform !== 'win32') {
   console.error('The installer build is Windows-only (Inno Setup).');
