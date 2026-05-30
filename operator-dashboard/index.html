@@ -856,9 +856,11 @@
     function deleteSession(session, recCams, reload) {
       if (!session || !session.sessionId) return;
       const sid = session.sessionId;
+      // Every clip file for the session, across all of a camera's split segments
+      // (a reconnect leaves several) — so the count and the deletion cover them
+      // all instead of orphaning the extras.
       const matches = (session.cameras || [])
-        .map((c) => ({ cam: c.id, name: fileForCam(recCams, c.id, session) }))
-        .filter((m) => m.name);
+        .flatMap((c) => filesForCam(recCams, c.id, session).map((f) => ({ cam: c.id, name: f.name })));
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `<div class="modal">
@@ -916,21 +918,35 @@
     }
 
     // ---------- Session preview player ----------
-    // Plays the program edit for a finished session: a single active <video> at a
-    // time, driven by the switch log. Each per-angle clip is mapped onto the
-    // session timeline via its recordStartedAt; at each take offset the active
-    // angle swaps. Pre-roll (before the first take) and takes whose camera has no
-    // file show a black "no footage" frame. Preview only — not a rendered export.
+    // Plays the program edit for a finished session, driven by the switch log. A
+    // camera can record as SEVERAL files in one session — a mid-session
+    // disconnect/reconnect makes MediaMTX close the file and open a new one on
+    // rejoin — so each camera maps to an ordered list of segments, each placed on
+    // the session timeline by its own start time. At each take offset the active
+    // segment swaps; gaps (pre-roll, no footage, or a link drop between segments)
+    // show a black frame. Preview only — not a rendered export.
 
-    // Match a session to one recording file per camera by mtime window (filenames
-    // are local-time, so we key off the reliable fs mtime instead).
-    function fileForCam(recCams, camId, session) {
+    // The MediaMTX filename embeds the segment's local start time
+    // (recordPath %Y-%m-%d_%H-%M-%S-%f). Parse it to a pseudo-epoch (seconds). We
+    // treat the parsed local time as if UTC: the fixed zone offset cancels when we
+    // only ever take DIFFERENCES between two of these (segment vs. segment), so the
+    // relative placement is correct without trusting the absolute zone.
+    function clipStartPseudo(name) {
+      const m = /(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)/.exec(name || '');
+      if (!m) return 0;
+      return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) / 1000;
+    }
+
+    // Every recording file for a camera that falls inside the session window,
+    // ordered by start time. Returns [{ name, sizeBytes, pseudo }].
+    function filesForCam(recCams, camId, session) {
       const entry = (recCams || []).find((c) => c.cam === camId);
-      if (!entry || !entry.files.length) return null;
+      if (!entry || !entry.files.length) return [];
       const lo = (session.startedAt || 0) - 2, hi = (session.stoppedAt || 0) + 10;
-      const cands = entry.files.filter((f) => f.modified >= lo && f.modified <= hi);
-      if (!cands.length) return null;
-      return cands.reduce((a, b) => (b.modified > a.modified ? b : a)).name;
+      return entry.files
+        .filter((f) => f.modified >= lo && f.modified <= hi)
+        .map((f) => ({ name: f.name, sizeBytes: f.sizeBytes, pseudo: clipStartPseudo(f.name) }))
+        .sort((a, b) => (a.pseudo - b.pseudo) || (a.name < b.name ? -1 : 1));
     }
 
     function openSessionPreview(session, recCams) {
@@ -938,19 +954,30 @@
       const dur = session.durationSec || 0;
       const start = session.startedAt || 0;
 
-      // Per-camera clip + timeline offset.
+      // Per-camera ordered segments, each with its timeline start offset. The first
+      // segment starts at the camera's record-start (recordStartedAt − sessionStart);
+      // later segments are offset by their filename delta from the first (so a
+      // reconnect lands at the right spot, with the gap between segments shown black).
       const cams = {};
       for (const c of (session.cameras || [])) {
-        const name = fileForCam(recCams, c.id, session);
+        const files = filesForCam(recCams, c.id, session);
+        const base = (c.recordStartedAt || start) - start;   // first segment's offset
+        const p0 = files.length ? files[0].pseudo : 0;
+        const segs = files.map((f, i) => ({
+          key: `${c.id}#${i}`,
+          name: f.name,
+          url: `/api/recordings/download?cam=${encodeURIComponent(c.id)}&name=${encodeURIComponent(f.name)}`,
+          start: base + (f.pseudo - p0),
+        }));
         cams[c.id] = {
           label: c.label || c.id,
           kind: c.kind === 'audio' ? 'audio' : 'video',
           link: c.link || null,
-          delay: (c.recordStartedAt || start) - start,
-          url: name ? `/api/recordings/download?cam=${encodeURIComponent(c.id)}&name=${encodeURIComponent(name)}` : null,
+          segs,
+          segKeys: segs.map((s) => s.key),
         };
       }
-      const audioCams = Object.entries(cams).filter(([, c]) => c.kind === 'audio' && c.url).map(([id, c]) => ({ id, label: c.label }));
+      const audioCams = Object.entries(cams).filter(([, c]) => c.kind === 'audio' && c.segKeys.length).map(([id, c]) => ({ id, label: c.label }));
 
       // Program segments from the ordered takes.
       const sw = (session.switches || []).slice().sort((a, b) => a.offset - b.offset);
@@ -1022,28 +1049,42 @@
         setLoading(!!(a && (a.readyState < 3 || a.seeking)));
       }
 
+      // Every element is keyed by a per-SEGMENT key ("cam1#0", "cam1#1", …), and
+      // segMeta maps that key back to its camera + timeline start, so the player
+      // can treat each split clip independently.
       const vids = {};
-      const thumbVids = {};   // hidden per-clip videos seeked for hover thumbnails
-      const micEls = {};      // hidden <audio> per audio source, played + level-set during preview
+      const thumbVids = {};   // hidden per-segment videos seeked for hover thumbnails
+      const micEls = {};      // hidden <audio> per mic segment, played + level-set during preview
+      const segMeta = {};     // segKey -> { camId, start, name }
       const LOAD_EVENTS = ['loadstart', 'waiting', 'seeking', 'stalled', 'emptied', 'loadeddata', 'canplay', 'canplaythrough', 'seeked', 'playing', 'progress'];
+      // Lazy loading: with N angles (and split segments), eagerly buffering every
+      // clip (preload=auto) plus a metadata thumbnail clip means many full-file
+      // streams hit the disk and the single control server at once — a multi-GB
+      // session takes minutes to become playable. Instead every element starts
+      // preload=none and only fetches once it's needed: the active segment loads
+      // when setActiveFor / seek / play sets its currentTime (the server's Range
+      // support means it pulls only the bytes it plays, not the whole file);
+      // thumbnails load on first hover; mics load when playback first routes to them.
       for (const [id, c] of Object.entries(cams)) {
-        if (!c.url) continue;
-        if (c.kind === 'audio') {                  // mic source: a synced <audio>, not a video angle
-          const a = document.createElement('audio');
-          a.preload = 'auto'; a.src = c.url; a.style.display = 'none';
-          stage.appendChild(a);
-          micEls[id] = a;
-          continue;
+        for (const sgm of c.segs) {
+          segMeta[sgm.key] = { camId: id, start: sgm.start, name: sgm.name };
+          if (c.kind === 'audio') {                  // mic source: a synced <audio>, not a video angle
+            const a = document.createElement('audio');
+            a.preload = 'none'; a.src = sgm.url; a.style.display = 'none';
+            stage.appendChild(a);
+            micEls[sgm.key] = a;
+            continue;
+          }
+          const v = document.createElement('video');
+          v.playsInline = true; v.preload = 'none'; v.muted = true; v.src = sgm.url;
+          stage.insertBefore(v, black);
+          vids[sgm.key] = v;
+          for (const ev of LOAD_EVENTS) v.addEventListener(ev, () => { if (sgm.key === activeId) refreshStageLoading(); });
+          const tv = document.createElement('video');
+          tv.playsInline = true; tv.preload = 'none'; tv.muted = true; tv.style.display = 'none'; tv.src = sgm.url;
+          stage.appendChild(tv);
+          thumbVids[sgm.key] = tv;
         }
-        const v = document.createElement('video');
-        v.playsInline = true; v.preload = 'auto'; v.muted = true; v.src = c.url;
-        stage.insertBefore(v, black);
-        vids[id] = v;
-        for (const ev of LOAD_EVENTS) v.addEventListener(ev, () => { if (id === activeId) refreshStageLoading(); });
-        const tv = document.createElement('video');
-        tv.playsInline = true; tv.preload = 'metadata'; tv.muted = true; tv.style.display = 'none'; tv.src = c.url;
-        stage.appendChild(tv);
-        thumbVids[id] = tv;
       }
       for (const s of sw) {
         if (!dur) break;
@@ -1055,34 +1096,45 @@
 
       let sessionTime = 0, playing = false, activeId = undefined, lastMs = 0, raf = 0;
 
-      // A clip's footage can run out before its program segment ends (the phone
-      // dropped early, or the clip was trimmed/short). Past that point keep the
-      // timeline moving but show the black panel rather than a misleading frozen
-      // last frame. Optimistic while the clip's duration is still unknown.
-      const COVER_TOL = 0.3;   // a clip ending within this of a take still "covers" it
-      function clipCovers(id, t) {
-        const v = vids[id];
-        if (!v) return false;
-        const d = v.duration;
-        if (!isFinite(d) || d <= 0) return true;     // metadata not loaded yet
-        return t <= cams[id].delay + d + COVER_TOL;
+      // A camera's footage at session-time t lives in whichever segment is active
+      // then: the latest-starting segment that has begun and whose footage still
+      // reaches t. Past a segment's end (the phone dropped early, the clip was
+      // short, or a reconnect left a gap before the next segment) there's no cover
+      // there — keep the timeline moving but show the black panel rather than a
+      // frozen last frame. Optimistic while a segment's duration is still unknown.
+      const COVER_TOL = 0.3;   // a segment ending within this of t still "covers" it
+      function coverKeyIn(map, camId, t) {
+        const c = cams[camId];
+        if (!c) return null;
+        let best = null;
+        for (const k of c.segKeys) {
+          const st = segMeta[k].start;
+          if (t < st) continue;                         // segment hasn't started yet
+          const el = map[k];
+          const d = el ? el.duration : NaN;
+          const covers = (!isFinite(d) || d <= 0) ? true : (t <= st + d + COVER_TOL);
+          if (covers) best = k;                         // later keys start later; last covering wins
+        }
+        return best;
       }
+      const coverKey = (camId, t) => coverKeyIn(vids, camId, t);
       // Black-panel text at session-time t: pre-roll, a camera with no clip on
-      // disk, or a clip whose footage ran out before the take ended.
+      // disk, or a clip whose footage ran out / a gap between split segments.
       function blackTextFor(t) {
         const seg = segAt(t);
         if (!seg.camId) return '— before first take —';
-        return vids[seg.camId] ? `${labelFor(seg.camId)} — footage ended` : `no footage for ${labelFor(seg.camId)}`;
+        const c = cams[seg.camId];
+        return (c && c.segKeys.length) ? `${labelFor(seg.camId)} — footage ended` : `no footage for ${labelFor(seg.camId)}`;
       }
 
       // animate=true cross-dissolves (opacity transition); false flips instantly
-      // (used for seeks/scrubs, where a dissolve would smear).
-      function showActive(id, animate = false) {
+      // (used for seeks/scrubs, where a dissolve would smear). `key` is a segKey.
+      function showActive(key, animate = false) {
         if (!animate) stage.classList.add('no-anim');
-        for (const [vid, v] of Object.entries(vids)) {
-          const on = vid === id; v.classList.toggle('active', on); v.muted = !on; if (!on) v.pause();
+        for (const [k, v] of Object.entries(vids)) {
+          const on = k === key; v.classList.toggle('active', on); v.muted = !on; if (!on) v.pause();
         }
-        if (id && vids[id]) { camLabel.textContent = cams[id].label; camLabel.style.display = 'block'; black.classList.remove('show'); }
+        if (key && vids[key]) { camLabel.textContent = cams[segMeta[key].camId].label; camLabel.style.display = 'block'; black.classList.remove('show'); }
         else {
           camLabel.style.display = 'none'; black.classList.add('show');
           black.textContent = blackTextFor(sessionTime);
@@ -1091,12 +1143,12 @@
       }
       function setActiveFor(t, animate = false) {
         const seg = segAt(t);
-        const id = (seg.camId && vids[seg.camId] && clipCovers(seg.camId, t)) ? seg.camId : null;
-        if (id !== activeId) {
-          activeId = id;
-          showActive(id, animate);
-          if (id) { try { vids[id].currentTime = Math.max(0, t - cams[id].delay); } catch {} if (playing) vids[id].play().catch(() => {}); }
-        } else if (!id) {
+        const key = seg.camId ? coverKey(seg.camId, t) : null;
+        if (key !== activeId) {
+          activeId = key;
+          showActive(key, animate);
+          if (key) { try { vids[key].currentTime = Math.max(0, t - segMeta[key].start); } catch {} if (playing) vids[key].play().catch(() => {}); }
+        } else if (!key) {
           black.textContent = blackTextFor(t);
         }
         refreshStageLoading();
@@ -1107,7 +1159,7 @@
       function tick(ms) {
         if (!playing) return;
         const a = activeId && vids[activeId];
-        if (a && !a.paused && !a.seeking) sessionTime = a.currentTime + cams[activeId].delay;
+        if (a && !a.paused && !a.seeking) sessionTime = a.currentTime + segMeta[activeId].start;
         else sessionTime += (ms - lastMs) / 1000;     // advance through black/missing footage
         lastMs = ms;
         if (sessionTime >= dur) { sessionTime = dur; setActiveFor(dur); pause(); ui(); return; }
@@ -1119,7 +1171,7 @@
         if (sessionTime >= dur) sessionTime = 0;
         playing = true; playBtn.setAttribute('aria-label', 'Pause'); playBtn.innerHTML = '<span aria-hidden="true">❚❚</span> Pause';
         activeId = undefined; setActiveFor(sessionTime);
-        if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} vids[activeId].play().catch(() => {}); }
+        if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - segMeta[activeId].start); } catch {} vids[activeId].play().catch(() => {}); }
         lastMs = performance.now(); raf = requestAnimationFrame(tick);
       }
       function pause() { playing = false; playBtn.setAttribute('aria-label', 'Play'); playBtn.innerHTML = '<span aria-hidden="true">▶</span> Play'; cancelAnimationFrame(raf); for (const v of Object.values(vids)) v.pause(); for (const el of Object.values(micEls)) el.pause(); refreshStageLoading(); }
@@ -1127,7 +1179,7 @@
         sessionTime = Math.max(0, Math.min(dur, t)); activeId = undefined; setActiveFor(sessionTime); ui();
         // Seek the active clip's frame even when paused, so scrubbing shows the
         // frame under the cursor (not just a moving fill bar).
-        if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - cams[activeId].delay); } catch {} if (playing) vids[activeId].play().catch(() => {}); }
+        if (activeId && vids[activeId]) { try { vids[activeId].currentTime = Math.max(0, sessionTime - segMeta[activeId].start); } catch {} if (playing) vids[activeId].play().catch(() => {}); }
         refreshStageLoading();
         lastMs = performance.now();
       }
@@ -1186,15 +1238,16 @@
         tip.style.left = `${Math.max(half, Math.min(r.width - half, x))}px`;
         tipTime.textContent = fmtOffset(t);
         const seg = segAt(t);
-        const id = (seg.camId && thumbVids[seg.camId] && clipCovers(seg.camId, t)) ? seg.camId : null;
-        hoverId = id;
-        if (id) {
+        const key = seg.camId ? coverKeyIn(thumbVids, seg.camId, t) : null;
+        hoverId = key;
+        if (key) {
           tipGap.style.display = 'none'; tipCanvas.style.display = 'block';
-          thumbVids[id]._want = Math.max(0, t - cams[id].delay);
-          pumpThumb(id);
+          thumbVids[key]._want = Math.max(0, t - segMeta[key].start);
+          pumpThumb(key);
         } else {
           tipCanvas.style.display = 'none'; tipGap.style.display = 'flex'; hideThumbSpin();
-          tipGap.textContent = seg.camId ? (vids[seg.camId] ? 'footage ended' : `no footage`) : 'before first take';
+          const c = seg.camId ? cams[seg.camId] : null;
+          tipGap.textContent = seg.camId ? ((c && c.segKeys.length) ? 'footage ended' : 'no footage') : 'before first take';
         }
       });
       bar.addEventListener('mouseleave', () => { tip.style.display = 'none'; hoverId = null; hideThumbSpin(); });
@@ -1218,10 +1271,12 @@
       function applyAudio() {
         const eff = effRouting(segIndexAt(sessionTime));
         if (activeId && vids[activeId]) vids[activeId].volume = (eff.mic && eff.mode === 'replace') ? 0 : Math.min(1, eff.camVol);
-        for (const [mid, el] of Object.entries(micEls)) {
-          if (mid === eff.mic) {
+        // A mic can also split into segments; route to whichever covers now.
+        const wantKey = eff.mic ? coverKeyIn(micEls, eff.mic, sessionTime) : null;
+        for (const [k, el] of Object.entries(micEls)) {
+          if (k === wantKey) {
             el.volume = Math.min(1, eff.micVol);
-            const want = sessionTime - (cams[mid].delay || 0);
+            const want = sessionTime - segMeta[k].start;
             if (playing && want >= 0 && want < (isFinite(el.duration) ? el.duration : 1e9)) {
               if (Math.abs((el.currentTime || 0) - want) > 0.3) { try { el.currentTime = Math.max(0, want); } catch {} }
               el.play().catch(() => {});

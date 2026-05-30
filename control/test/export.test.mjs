@@ -23,7 +23,7 @@ test('planSegments: pre-roll gap + ordered takes to durationSec', () => {
 
 test('planParts: footage covering a segment fully -> one footage part', () => {
   const s = { startedAt: 1000, durationSec: 6, cameras: [{ id: 'cam1', recordStartedAt: 1000 }], switches: [{ offset: 0, camId: 'cam1' }] };
-  const clips = { cam1: { file: 'a.mp4', dur: 30, hasAudio: true, delay: 0 } };
+  const clips = { cam1: { segs: [{ file: 'a.mp4', dur: 30, hasAudio: true, start: 0 }] } };
   assert.deepEqual(planParts(s, clips), [{ type: 'footage', file: 'a.mp4', clipIn: 0, dur: 6, hasAudio: true }]);
 });
 
@@ -35,8 +35,8 @@ test('planParts: footage that runs out mid-take is padded with black', () => {
   };
   // cam1 long clip; cam2 only 2s of footage, starting 5s into the session.
   const clips = {
-    cam1: { file: 'a.mp4', dur: 30, hasAudio: true, delay: 0 },
-    cam2: { file: 'b.mp4', dur: 2, hasAudio: false, delay: 5 },
+    cam1: { segs: [{ file: 'a.mp4', dur: 30, hasAudio: true, start: 0 }] },
+    cam2: { segs: [{ file: 'b.mp4', dur: 2, hasAudio: false, start: 5 }] },
   };
   assert.deepEqual(planParts(s, clips), [
     { type: 'footage', file: 'a.mp4', clipIn: 0, dur: 6, hasAudio: true },
@@ -47,7 +47,7 @@ test('planParts: footage that runs out mid-take is padded with black', () => {
 
 test('planParts: a late-joining camera gets a black head', () => {
   const s = { startedAt: 1000, durationSec: 12, cameras: [{ id: 'cam1', recordStartedAt: 1003 }], switches: [{ offset: 0, camId: 'cam1' }] };
-  const clips = { cam1: { file: 'a.mp4', dur: 30, hasAudio: true, delay: 3 } };
+  const clips = { cam1: { segs: [{ file: 'a.mp4', dur: 30, hasAudio: true, start: 3 }] } };
   assert.deepEqual(planParts(s, clips), [
     { type: 'black', dur: 3 },                                                // before cam1's footage starts
     { type: 'footage', file: 'a.mp4', clipIn: 0, dur: 9, hasAudio: true },
@@ -92,7 +92,7 @@ test('planParts: a linked mic attaches an audio mix to the part; no link -> no a
     cameras: [{ id: 'cam1', kind: 'video', recordStartedAt: 1000 }, { id: 'mic1', kind: 'audio', link: 'cam1', recordStartedAt: 1000 }],
     switches: [{ offset: 0, camId: 'cam1' }],
   };
-  const clips = { cam1: { file: 'a.mp4', dur: 30, hasAudio: true, delay: 0 }, mic1: { file: 'm.mp4', dur: 30, hasAudio: true, delay: 0 } };
+  const clips = { cam1: { segs: [{ file: 'a.mp4', dur: 30, hasAudio: true, start: 0 }] }, mic1: { segs: [{ file: 'm.mp4', dur: 30, hasAudio: true, start: 0 }] } };
   const parts = planParts(session, clips);
   assert.equal(parts.length, 1);
   assert.deepEqual(parts[0].audio, { mode: 'mix', camVol: 1, micVol: 1, micFile: 'm.mp4', micIn: 0 });
@@ -101,14 +101,36 @@ test('planParts: a linked mic attaches an audio mix to the part; no link -> no a
   assert.equal(planParts(noLink, clips)[0].audio, undefined);   // byte-identical to before
 });
 
-test('fileForCam: picks the latest clip inside the session mtime window', () => {
+test('planParts: a camera split by a reconnect stitches both segments with a black gap', () => {
+  const s = {
+    startedAt: 1000, durationSec: 20,
+    cameras: [{ id: 'cam1', recordStartedAt: 1000 }],
+    switches: [{ offset: 0, camId: 'cam1' }],
+  };
+  // cam1 recorded 0..8 (pre-blip), the phone dropped, then came back 12..20 — a 4s
+  // gap where MediaMTX had no publisher. Both files must appear, gap filled black.
+  const clips = { cam1: { segs: [
+    { file: 'a.mp4', dur: 8, hasAudio: true, start: 0 },
+    { file: 'b.mp4', dur: 8, hasAudio: true, start: 12 },
+  ] } };
+  assert.deepEqual(planParts(s, clips), [
+    { type: 'footage', file: 'a.mp4', clipIn: 0, dur: 8, hasAudio: true },   // session 0..8
+    { type: 'black', dur: 4 },                                               // 8..12 link down
+    { type: 'footage', file: 'b.mp4', clipIn: 0, dur: 8, hasAudio: true },   // 12..20 reconnect
+  ]);
+});
+
+test('fileForCam: picks the largest clip (bulk footage) inside the session mtime window', () => {
+  // A reconnect splits a camera into a long pre-blip file plus a short tail with a
+  // LATER mtime. The matcher must pick the bulk file, not the tail; out-of-window
+  // files are excluded even though they're larger.
   const recCams = [{ cam: 'cam1', files: [
-    { name: 'before.mp4', modified: 500 },
-    { name: 'in-early.mp4', modified: 1005 },
-    { name: 'in-late.mp4', modified: 1009 },
-    { name: 'after.mp4', modified: 2000 },
+    { name: 'before.mp4', modified: 500, sizeBytes: 9_000_000 },   // out of window
+    { name: 'bulk.mp4', modified: 1005, sizeBytes: 8_000_000 },    // the long pre-blip recording
+    { name: 'tail.mp4', modified: 1009, sizeBytes: 200_000 },      // short reconnect tail (latest mtime)
+    { name: 'after.mp4', modified: 2000, sizeBytes: 9_000_000 },   // out of window
   ] }];
   const s = { startedAt: 1000, stoppedAt: 1012 };
-  assert.equal(fileForCam(recCams, 'cam1', s), 'in-late.mp4');
+  assert.equal(fileForCam(recCams, 'cam1', s), 'bulk.mp4');
   assert.equal(fileForCam(recCams, 'camX', s), null);   // no such camera
 });

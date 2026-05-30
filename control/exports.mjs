@@ -54,13 +54,28 @@ function exportFile(id) {
 
 // Match a session to one clip file per camera by mtime window (filenames are
 // local-time; mtime is the reliable key). Mirrors the dashboard's fileForCam.
+// A mid-session disconnect/reconnect splits a camera across several files; pick
+// the largest (the bulk footage), not the latest mtime (the short reconnect tail).
+// NOTE: this still renders only ONE file per camera — a session split into two
+// substantial clips loses the other to black filler. The full fix is to stitch
+// every segment (see the dashboard preview); the export needs the same treatment.
 export function fileForCam(recCams, camId, session) {
-  const entry = (recCams || []).find((c) => c.cam === camId);
-  if (!entry || !entry.files.length) return null;
-  const lo = (session.startedAt || 0) - 2, hi = (session.stoppedAt || 0) + 10;
-  const cands = entry.files.filter((f) => f.modified >= lo && f.modified <= hi);
+  const cands = filesForCam(recCams, camId, session);
   if (!cands.length) return null;
-  return cands.reduce((a, b) => (b.modified > a.modified ? b : a)).name;
+  return cands.reduce((a, b) => (b.sizeBytes > a.sizeBytes ? b : a)).name;
+}
+
+// Every clip file for a camera inside the session window, oldest first. A
+// disconnect/reconnect produces several; the export stitches them all (see
+// buildClips/planParts).
+export function filesForCam(recCams, camId, session) {
+  const entry = (recCams || []).find((c) => c.cam === camId);
+  if (!entry || !entry.files.length) return [];
+  const lo = (session.startedAt || 0) - 2, hi = (session.stoppedAt || 0) + 10;
+  return entry.files
+    .filter((f) => f.modified >= lo && f.modified <= hi)
+    .slice()
+    .sort((a, b) => a.modified - b.modified);
 }
 
 // Ordered program segments from the switch log. Pure — mirrors the preview
@@ -106,42 +121,61 @@ export function sectionAudio(session, seg, segIndex) {
   return { micId: null, mode: 'mix', camVol: 1, micVol: 1 };
 }
 
+// Of a mic's segments, the one with the most overlap with [start, start+dur)
+// (or null if none meaningfully overlaps). A mic can split on reconnect just like
+// a camera; a render part takes the dominant segment's audio.
+function micSegOverlapping(segs, start, dur) {
+  const end = start + dur;
+  let best = null, bestOv = 0.05;
+  for (const m of (segs || [])) {
+    if (!m.file || m.dur <= 0) continue;
+    const ov = Math.min(end, m.start + m.dur) - Math.max(start, m.start);
+    if (ov > bestOv) { bestOv = ov; best = m; }
+  }
+  return best;
+}
+
 // Expand segments into concrete render parts: footage cuts and black fillers.
-// `clips` = { camId: { file, dur, hasAudio, delay } }. Pure (no ffmpeg).
-// A part gets an `audio` routing object only when it's non-trivial (a mic is
-// mixed/replaced, or the camera volume isn't unity) — so the common case stays
-// byte-identical and concat-copies.
+// `clips` = { camId: { segs: [{ file, dur, hasAudio, start }] } }. A camera can
+// have several segments (a disconnect/reconnect split); each program segment is
+// covered by walking its segments in order, filling gaps (and the head/tail) with
+// black. Pure (no ffmpeg). A part gets an `audio` routing object only when it's
+// non-trivial (a mic is mixed/replaced, or the camera volume isn't unity) — so
+// the common case stays byte-identical and concat-copies.
 export function planParts(session, clips) {
   const parts = [];
   const segs = planSegments(session);
   for (let si = 0; si < segs.length; si++) {
     const seg = segs[si];
     const aud = sectionAudio(session, seg, si);
-    const micClip = aud.micId ? clips[aud.micId] : null;
+    const micSegs = aud.micId && clips[aud.micId] ? clips[aud.micId].segs : null;
     const add = (p, sessionStart) => {
-      if (micClip && micClip.file && micClip.dur > 0) {
-        const micIn = round3(sessionStart - (micClip.delay || 0));
-        if (micIn + p.dur > 0.05 && micIn < micClip.dur) {   // mic footage overlaps this part
-          p.audio = { mode: aud.mode, camVol: aud.camVol, micVol: aud.micVol, micFile: micClip.file, micIn: Math.max(0, micIn) };
+      const ms = micSegs ? micSegOverlapping(micSegs, sessionStart, p.dur) : null;
+      if (ms) {
+        const micIn = round3(sessionStart - ms.start);
+        if (micIn < ms.dur) {   // mic footage overlaps this part
+          p.audio = { mode: aud.mode, camVol: aud.camVol, micVol: aud.micVol, micFile: ms.file, micIn: Math.max(0, micIn) };
         }
       }
       if (!p.audio && aud.camVol !== 1) p.audio = { mode: 'mix', camVol: aud.camVol, micVol: aud.micVol };
       parts.push(p);
     };
-    const segDur = round3(seg.end - seg.start);
-    const c = seg.camId ? clips[seg.camId] : null;
-    if (c && c.file && c.dur > 0) {
-      const delay = c.delay || 0;
-      const availStart = Math.max(seg.start, delay);
-      const availEnd = Math.min(seg.end, delay + c.dur);
+    const camSegs = (seg.camId && clips[seg.camId] ? clips[seg.camId].segs : [])
+      .filter((c) => c.file && c.dur > 0)
+      .slice()
+      .sort((a, b) => a.start - b.start);
+    let cursor = seg.start;
+    for (const c of camSegs) {
+      const availStart = Math.max(cursor, c.start);
+      const availEnd = Math.min(seg.end, c.start + c.dur);
       if (availEnd - availStart > 0.05) {
-        if (availStart - seg.start > 0.05) add({ type: 'black', dur: round3(availStart - seg.start) }, seg.start);
-        add({ type: 'footage', file: c.file, clipIn: round3(availStart - delay), dur: round3(availEnd - availStart), hasAudio: !!c.hasAudio }, availStart);
-        if (seg.end - availEnd > 0.05) add({ type: 'black', dur: round3(seg.end - availEnd) }, availEnd);
-        continue;
+        if (availStart - cursor > 0.05) add({ type: 'black', dur: round3(availStart - cursor) }, cursor);
+        add({ type: 'footage', file: c.file, clipIn: round3(availStart - c.start), dur: round3(availEnd - availStart), hasAudio: !!c.hasAudio }, availStart);
+        cursor = availEnd;
       }
+      if (cursor >= seg.end - 0.05) break;
     }
-    add({ type: 'black', dur: segDur }, seg.start);
+    if (seg.end - cursor > 0.05) add({ type: 'black', dur: round3(seg.end - cursor) }, cursor);
   }
   return parts;
 }
@@ -200,17 +234,28 @@ function ffprobe(file) {
   });
 }
 
-// Resolve + probe one clip per camera in the session.
+// Resolve + probe every clip per camera in the session, as ordered segments on
+// the session timeline. A reconnect splits a camera into multiple files; each
+// becomes a segment, placed by its own start time so gaps render as black.
 async function buildClips(session) {
   const recCams = listRecordings();
   const sessionStart = session.startedAt || 0;
   const clips = {};
   for (const cam of (session.cameras || [])) {
-    const name = fileForCam(recCams, cam.id, session);
-    const file = name ? resolveRecording(cam.id, name) : null;
-    if (!file) continue;
-    const { dur, hasAudio } = await ffprobe(file);
-    clips[cam.id] = { file, dur, hasAudio, delay: Math.max(0, (cam.recordStartedAt || sessionStart) - sessionStart) };
+    const segs = [];
+    for (const f of filesForCam(recCams, cam.id, session)) {
+      const file = resolveRecording(cam.id, f.name);
+      if (!file) continue;
+      const { dur, hasAudio } = await ffprobe(file);
+      if (dur <= 0) continue;
+      // Segment start = its end (fs mtime) minus probed duration, relative to the
+      // session start. mtime is the reliable clock (filenames are local-time) and
+      // duration comes free from the probe we already run; the first segment lands
+      // at ~the camera's recordStartedAt.
+      const start = Math.max(0, round3((f.modified || sessionStart) - dur - sessionStart));
+      segs.push({ file, dur, hasAudio, start });
+    }
+    if (segs.length) { segs.sort((a, b) => a.start - b.start); clips[cam.id] = { segs }; }
   }
   return clips;
 }

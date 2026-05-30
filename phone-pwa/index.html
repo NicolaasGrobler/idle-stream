@@ -127,6 +127,12 @@
 
     let ws = null, stream = null, pc = null, statsTimer = null;
     let assignedSlot = null, publishing = false, reconnectDelay = 1000;
+    // wantPublish = the operator told us to publish and hasn't told us to stop. If
+    // the WebRTC media drops while this is set, we re-publish ourselves instead of
+    // sitting dead until the operator notices — minimising the recording gap (every
+    // re-publish opens a fresh MediaMTX file, so the shorter the drop the fewer/
+    // smaller the split segments the dashboard has to stitch back together).
+    let wantPublish = false, republishTimer = null;
     let battery = null;   // {level 0-1, charging} where the Battery API exists (not iOS)
     let captureKind = 'camera';   // 'camera' | 'screen'
 
@@ -195,6 +201,7 @@
 
     function onScreenEnded() {
       log('Screen sharing stopped.');
+      wantPublish = false;
       stopPublish();
       setBadge($('status'), 'bad', 'screen sharing stopped');
       $('slot').classList.remove('ok');
@@ -231,18 +238,36 @@
       });
     }
 
+    // Re-publish after a media drop, but only if the operator still wants us live
+    // and the connection hasn't recovered on its own. 'disconnected' is often a
+    // transient ICE blip that self-heals (same connection, NO new file), so give it
+    // a grace period; 'failed' is terminal, so retry quickly.
+    function scheduleRepublish(delay) {
+      clearTimeout(republishTimer);
+      republishTimer = setTimeout(() => {
+        republishTimer = null;
+        if (!wantPublish || !assignedSlot) return;
+        if (pc && pc.connectionState === 'connected') return;   // recovered itself
+        log('Link dropped — re-publishing…');
+        startPublish(assignedSlot);
+      }, delay);
+    }
+
     async function startPublish(slot) {
       if (!slot) return;
       if (pc && pc.connectionState === 'connected') return;   // already live
+      clearTimeout(republishTimer); republishTimer = null;     // this attempt supersedes any pending retry
       if (pc) { try { pc.close(); } catch {} pc = null; }       // clear a stale/dead pc so reconnect can re-publish
       publishing = false;
       if (!stream) { log('No capture source; cannot publish.'); return; }
       setBadge($('status'), 'warn', 'connecting…');
       pc = new RTCPeerConnection({ iceServers: [] });
       pc.onconnectionstatechange = () => {
+        if (!pc) return;
         const s = pc.connectionState;
-        if (s === 'connected') { setBadge($('status'), 'ok', 'LIVE'); sendStatus(true); }
-        else if (s === 'failed' || s === 'disconnected') { setBadge($('status'), 'bad', s); sendStatus(false); }
+        if (s === 'connected') { clearTimeout(republishTimer); republishTimer = null; setBadge($('status'), 'ok', 'LIVE'); sendStatus(true); }
+        else if (s === 'failed') { setBadge($('status'), 'bad', 'failed'); sendStatus(false); if (wantPublish) scheduleRepublish(800); }
+        else if (s === 'disconnected') { setBadge($('status'), 'bad', 'reconnecting…'); sendStatus(false); if (wantPublish) scheduleRepublish(4000); }
       };
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       preferH264(pc);
@@ -260,10 +285,12 @@
         setBadge($('status'), 'bad', 'error');
         log('Publish failed: ' + e.message);
         stopPublish();
+        if (wantPublish) scheduleRepublish(1500);   // server blip — keep trying while still armed
       }
     }
 
     function stopPublish() {
+      clearTimeout(republishTimer); republishTimer = null;   // cancel any pending recovery
       if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
       if (pc) { try { pc.close(); } catch {} pc = null; }
       publishing = false;
@@ -343,14 +370,15 @@
         assignedSlot = msg.slot;
         $('slot').textContent = assignedSlot ? (msg.label || assignedSlot) : '—';
         $('slot').className = assignedSlot ? 'ok' : 'muted';
-        if (!assignedSlot && publishing) stopPublish();
+        if (!assignedSlot) { wantPublish = false; if (publishing) stopPublish(); }
         if (!publishing) setBadge($('status'), assignedSlot ? 'muted' : 'muted', assignedSlot ? 'standby' : 'waiting for operator');
         log(assignedSlot ? `Assigned to ${assignedSlot}.` : 'Unassigned.');
       } else if (msg.type === 'command') {
         if (msg.action === 'publish') {
           if (msg.bitrate) currentBitrate = msg.bitrate;   // operator-set effective bitrate
+          wantPublish = true;
           startPublish(msg.slot || assignedSlot);
-        } else if (msg.action === 'stop') stopPublish();
+        } else if (msg.action === 'stop') { wantPublish = false; stopPublish(); }
       } else if (msg.type === 'bitrate') {
         if (msg.bitrate) { currentBitrate = msg.bitrate; applyBitrate(); }   // live change, no renegotiation
       } else if (msg.type === 'recording') {
