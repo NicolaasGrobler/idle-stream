@@ -10,7 +10,7 @@
 import innosetup from 'innosetup-compiler';
 import pngToIco from 'png-to-ico';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -20,7 +20,9 @@ const EXE = join(DIST, 'multicam.exe');
 const ICO = join(DIST, 'multicam.ico');
 const ISS = join(DIST, 'installer.iss');
 const APP_ID = '{{B3F1B8E2-7C4A-4E9D-9B1F-1A2C3D4E5F60}'; // stable -> upgrades/uninstall track
-const VERSION = '0.1.2';
+// Version comes from package.json (single source of truth) — was hardcoded and
+// went stale, so installers shipped with the wrong AppVersion in the title bar.
+const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
 
 if (process.platform !== 'win32') {
   console.error('The installer build is Windows-only (Inno Setup).');

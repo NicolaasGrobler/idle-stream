@@ -31,6 +31,11 @@ const WORK_EXE = join(WORK, EXE_NAME);
 const EXE = join(DIST, EXE_NAME);
 // Node's documented SEA fuse sentinel.
 const FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+// Single source of truth for the version: package.json. Stamped into the exe's
+// PE VersionInfo below, so Windows (file properties, Add/Remove Programs) and the
+// tray (which reads the exe's ProductVersion) all report the real version.
+const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
+const [V_MAJ, V_MIN, V_PAT] = VERSION.split('.').map((n) => parseInt(n, 10) || 0);
 
 async function bundle() {
   mkdirSync(DIST, { recursive: true });
@@ -108,15 +113,15 @@ async function stampIcon() {
       res.entries, 1, 1033, iconFile.icons.map((i) => i.data),
     );
     const vi = Resource.VersionInfo.createEmpty();
-    vi.setFileVersion(0, 1, 0, 0, 1033);
-    vi.setProductVersion(0, 1, 0, 0, 1033);
+    vi.setFileVersion(V_MAJ, V_MIN, V_PAT, 0, 1033);
+    vi.setProductVersion(V_MAJ, V_MIN, V_PAT, 0, 1033);
     vi.setStringValues({ lang: 1033, codepage: 1200 }, {
       ProductName: 'Wireless Multicam Studio',
       FileDescription: 'Wireless Multicam Studio',
       CompanyName: 'OpenIdle',
       OriginalFilename: 'multicam.exe',
-      ProductVersion: '0.1.0.0',
-      FileVersion: '0.1.0.0',
+      ProductVersion: VERSION,
+      FileVersion: VERSION,
     });
     vi.outputToResourceEntries(res.entries);
     res.outputResource(exe);
