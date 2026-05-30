@@ -18,13 +18,18 @@ $AppDir = $PSScriptRoot
 $Exe    = Join-Path $AppDir 'multicam.exe'
 $IcoPath = Join-Path $AppDir 'multicam.ico'
 
+# Version stamped into the exe (single source of truth = package.json), shown in
+# the tray menu + tooltip so the running build is visible in the app itself.
+$script:appVer = ''
+try { if (Test-Path $Exe) { $script:appVer = (Get-Item $Exe).VersionInfo.ProductVersion } } catch {}
+
 $script:phoneUrl = 'https://localhost:8443/'
 $script:operatorUrl = 'https://studio.localhost:8444/'
 $script:running = $false
 
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Icon = if (Test-Path $IcoPath) { New-Object System.Drawing.Icon($IcoPath) } else { [System.Drawing.SystemIcons]::Application }
-$notify.Text = 'Wireless Multicam Studio'
+$notify.Text = if ($script:appVer) { "Wireless Multicam Studio v$script:appVer" } else { 'Wireless Multicam Studio' }
 $notify.Visible = $true
 
 function Balloon($title, $msg, $level = 'Info') {
@@ -64,6 +69,11 @@ function Stop-Stack {
 
 # ---- tray menu ----
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
+if ($script:appVer) {
+  $miVer = $menu.Items.Add("Wireless Multicam Studio  v$script:appVer")
+  $miVer.Enabled = $false
+  [void]$menu.Items.Add('-')
+}
 $miOpen = $menu.Items.Add('Open Operator Dashboard')
 $miOpen.add_Click({ Start-Process $script:operatorUrl })
 $miPhone = $menu.Items.Add('Open Device Page')
@@ -79,8 +89,15 @@ $miUrls.add_Click({
 [void]$menu.Items.Add('-')
 $miCert = $menu.Items.Add('First-time HTTPS setup')
 $miCert.add_Click({
-  & $Exe certs 2>$null | Out-Null   # self-elevates (UAC) on the packaged exe
-  Start-Stack                       # then bring the studio up
+  # NOTE: this still blocks the UI thread while certs (UAC elevation + mkcert)
+  # runs — the tray will show busy until it returns. The try/catch only stops a
+  # failure from killing the message loop; the real fix is to run this off-thread.
+  try {
+    & $Exe certs 2>$null | Out-Null   # self-elevates (UAC) on the packaged exe
+    Start-Stack                       # then bring the studio up
+  } catch {
+    Balloon 'Setup failed' "First-time HTTPS setup couldn't finish. See $AppDir\logs." 'Error'
+  }
 })
 [void]$menu.Items.Add('-')
 $miQuit = $menu.Items.Add('Stop && Quit')
@@ -108,6 +125,6 @@ foreach ($p in 8443,8444,8889,9000) {
 }
 if ($busy) { & $Exe down 2>$null | Out-Null }
 
-Start-Stack
+try { Start-Stack } catch { Balloon 'Startup error' "The studio failed to start. See $AppDir\logs." 'Error' }
 try { [System.Windows.Forms.Application]::Run() }
 finally { Stop-Stack }
