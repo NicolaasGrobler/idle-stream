@@ -93,13 +93,18 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 ; default terminal (Win11): WT owns the window and ignores the host's
 ; -WindowStyle. conhost --headless hosts the shell in a windowless console, so
 ; the tray runs truly hidden regardless of the user's default-terminal setting.
-Name: "{autoprograms}\\Wireless Multicam Studio"; Filename: "{sys}\\conhost.exe"; Parameters: "--headless ""{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"" -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"
+; conhost.exe is referenced as {sysnative} (not {sys}): this is a 32-bit installer
+; (PrivilegesRequired=lowest), so {sys}=System32 gets WOW64-redirected to SysWOW64
+; at launch — where conhost.exe doesn't exist (CreateProcess code 2). {sysnative}
+; reaches the real 64-bit System32. The nested powershell.exe path stays {sys}: it's
+; opened by the (64-bit) conhost, for which the Sysnative alias doesn't resolve.
+Name: "{autoprograms}\\Wireless Multicam Studio"; Filename: "{sysnative}\\conhost.exe"; Parameters: "--headless ""{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"" -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"
 Name: "{autoprograms}\\Wireless Multicam Studio (first-time HTTPS setup)"; Filename: "{app}\\multicam.exe"; Parameters: "certs"; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"
-Name: "{autodesktop}\\Wireless Multicam Studio"; Filename: "{sys}\\conhost.exe"; Parameters: "--headless ""{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"" -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\\Wireless Multicam Studio"; Filename: "{sysnative}\\conhost.exe"; Parameters: "--headless ""{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"" -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; IconFilename: "{app}\\multicam.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\\multicam.exe"; Parameters: "certs"; WorkingDir: "{app}"; Description: "Set up the HTTPS certificate now (recommended; one-time, needs admin)"; Flags: postinstall skipifsilent runhidden
-Filename: "{sys}\\conhost.exe"; Parameters: "--headless ""{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"" -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; WorkingDir: "{app}"; Description: "Launch Wireless Multicam Studio now"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{sysnative}\\conhost.exe"; Parameters: "--headless ""{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"" -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\\tray.ps1"""; WorkingDir: "{app}"; Description: "Launch Wireless Multicam Studio now"; Flags: postinstall nowait skipifsilent unchecked
 
 [Code]
 { A running studio holds locks on multicam.exe and the tools. Inno's Restart
