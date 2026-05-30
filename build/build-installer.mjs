@@ -56,8 +56,13 @@ AppId=${APP_ID}
 AppName=Wireless Multicam Studio
 AppVersion=${VERSION}
 AppPublisher=OpenIdle
-DefaultDirName={userdocs}\\Wireless Multicam Studio
+DefaultDirName={localappdata}\\Programs\\Wireless Multicam Studio
 DisableProgramGroupPage=yes
+; Install under LocalAppData, never {userdocs}: on machines with OneDrive, the
+; Documents folder is redirected into OneDrive, which then hydrates/locks the
+; 73 MB exe on every launch (freezing the tray) and uploads every multi-GB
+; recording to the cloud. LocalAppData is per-user, writable without admin, and
+; never synced. (Existing OneDrive installs must be uninstalled + reinstalled.)
 PrivilegesRequired=lowest
 OutputDir=${DIST}
 OutputBaseFilename=WirelessMulticamStudio-Setup
