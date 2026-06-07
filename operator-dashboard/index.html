@@ -260,6 +260,7 @@
       trash: svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>'),
       refresh: svg('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
       warn: svg('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+      box: svg('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'),
     };
 
     // While the operator is mid-interaction in the side panel (dropdown open or
@@ -662,6 +663,14 @@
       return `<button class="act sess-export" data-idx="${i}" title="Render the program edit to one MP4">${ICON.download} Export</button>`;
     }
 
+    // Per-session bundle download: a store-only .tar (clips + switch log + manifest)
+    // to carry the whole session to another, faster computer and preview/export it
+    // there. Plain <a download> — the server builds and streams it on the fly.
+    function bundleControl(sid, name) {
+      const fn = (String(name || sid).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'session') + '.studiobundle.tar';
+      return `<a class="act sess-bundle" href="/api/sessions/bundle?id=${encodeURIComponent(sid)}" download="${escapeHtml(fn)}" title="Download a portable bundle (clips + switch log) to import on another computer">${ICON.box} Bundle</a>`;
+    }
+
     function renderSessionsTab(sessions, selected, exports) {
       if (!sessions.length) return '<div class="empty">No sessions recorded yet. They appear here after you Record → Stop.</div>';
       const sub = `<div class="rec-sub">${sessions.length} session${sessions.length === 1 ? '' : 's'} · <a href="/api/sessions" download="switches.json">Download switches.json</a></div>`;
@@ -687,6 +696,7 @@
             <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
           </div><button class="act primary sess-preview" data-idx="${i}">${ICON.play} Preview</button>`
           + exportControl(s.sessionId, s.name, i, exports)
+          + bundleControl(s.sessionId, s.name)
           + `<button class="act icononly danger sess-del" data-idx="${i}" title="Delete session" aria-label="Delete session">${ICON.trash}</button></div>`;
         }).reverse().join('');
       return sub + subtabs + (cards || '<div class="empty">No sessions for this camera.</div>');
@@ -726,6 +736,7 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `<div class="modal recmodal">
         <div class="rec-head"><h3>Recordings</h3><span class="spacer"></span>
+          <label class="sm stop rec-import" title="Import a session bundle (.tar) made on another computer">Import…<input type="file" accept=".tar,application/x-tar" hidden></label>
           <button class="sm stop rec-refresh">Refresh</button>
           <button class="sm stop rec-close">Close</button></div>
         <div class="rec-tabs">
@@ -748,6 +759,41 @@
       document.addEventListener('keydown', onKey, true);
       overlay.querySelector('.rec-close').addEventListener('click', close);
       overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) close(); });
+
+      // Import a session bundle (.tar). The <input> is wrapped in its <label>, so
+      // a click opens the picker; we only handle the resulting change. The File is
+      // streamed straight as the fetch body (no client-side buffering). A duplicate
+      // sessionId comes back 409 — offer Replace, then Import-as-copy.
+      const importInput = overlay.querySelector('.rec-import input');
+      async function doImport(file, mode) {
+        if (!file) return;
+        body.textContent = `Importing ${file.name}…`;
+        try {
+          const qs = mode ? `?mode=${encodeURIComponent(mode)}` : '';
+          const res = await fetch(`/api/sessions/import${qs}`, { method: 'POST', body: file });
+          if (res.status === 409) {
+            const j = await res.json().catch(() => ({}));
+            await load();
+            if (await showModal({ title: 'Session already here', message: `A session "${j.sessionId}" already exists on this machine. Replace it with the bundle?`, confirmLabel: 'Replace', danger: true })) {
+              return doImport(file, 'replace');
+            }
+            if (await showModal({ title: 'Import as a copy?', message: 'Import the bundle as a separate new session instead?', confirmLabel: 'Import copy' })) {
+              return doImport(file, 'copy');
+            }
+            return;
+          }
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || `HTTP ${res.status}`); }
+          const j = await res.json();
+          await load();
+          showModal({ title: 'Session imported', message: `Imported "${escapeHtml(j.sessionId)}" — ${j.placed} new clip${j.placed === 1 ? '' : 's'}, ${j.cameras} camera${j.cameras === 1 ? '' : 's'}. Use Preview or Export below.`, confirmLabel: 'OK' });
+        } catch (e) {
+          await load();
+          showModal({ title: 'Import failed', message: String(e.message || e), confirmLabel: 'OK' });
+        } finally {
+          importInput.value = '';   // allow re-selecting the same file
+        }
+      }
+      importInput.addEventListener('change', () => doImport(importInput.files[0]));
 
       function renderTab() {
         tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === active));

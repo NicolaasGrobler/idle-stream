@@ -87,6 +87,21 @@ $miUrls.add_Click({
     'Wireless Multicam Studio', 'OK', 'Information') | Out-Null
 })
 [void]$menu.Items.Add('-')
+$miImport = $menu.Items.Add('Import session bundle...')
+$miImport.add_Click({
+  # Import a .tar session bundle made on another computer (engine = multicam.exe).
+  try {
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Filter = 'Studio bundle (*.tar)|*.tar|All files (*.*)|*.*'
+    $dlg.Title = 'Choose a session bundle to import'
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+      $out = & $Exe import $dlg.FileName 2>&1
+      if ($LASTEXITCODE -eq 0) { Balloon 'Session imported' 'Open the Operator Dashboard to preview or export it.' }
+      else { Balloon 'Import failed' ([string]::Join("`n", @($out))) 'Warning' }
+    }
+  } catch { Balloon 'Import failed' $_.Exception.Message 'Error' }
+})
+[void]$menu.Items.Add('-')
 $miCert = $menu.Items.Add('First-time HTTPS setup')
 $miCert.add_Click({
   # NOTE: this still blocks the UI thread while certs (UAC elevation + mkcert)

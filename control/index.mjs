@@ -8,6 +8,7 @@
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
+import { createWriteStream, rmSync } from 'node:fs';
 
 import { SessionState, makeCamera, makePhone } from './state.mjs';
 import { MediaMTX } from './mediamtx.mjs';
@@ -16,6 +17,7 @@ import * as switchesStore from './switches.mjs';
 import * as recordingsStore from './recordings.mjs';
 import * as assignmentsStore from './assignments.mjs';
 import * as exportsStore from './exports.mjs';
+import * as bundleStore from './bundle.mjs';
 import * as settingsStore from './settings.mjs';
 import { serveRangedFile } from './http-range.mjs';
 
@@ -612,6 +614,46 @@ function handleHttp(svc, req, res) {
   }
   if (req.method === 'GET' && path === '/api/preflight') {
     sendJson(res, 200, recordingsStore.preflight());
+    return;
+  }
+  // ----- Session bundle (export/import a whole session to another machine) -----
+  // Stream a store-only .tar of the session's switch-log entry + every matched
+  // clip + a manifest (mtimes for faithful restore). Built on the fly, so a
+  // multi-GB session never doubles on disk.
+  if ((req.method === 'GET' || req.method === 'HEAD') && path === '/api/sessions/bundle') {
+    const id = url.searchParams.get('id') ?? '';
+    if (!bundleStore.serveBundle(id, req, res)) sendJson(res, 404, { error: 'session not found' });
+    return;
+  }
+  // Receive an uploaded bundle. The body is a (possibly multi-GB) tar, so stream
+  // it straight to a temp file — never buffer it in memory like the JSON routes.
+  if (req.method === 'POST' && path === '/api/sessions/import') {
+    const mode = url.searchParams.get('mode') || 'skip';
+    const tmp = bundleStore.tempUploadPath();
+    const ws = createWriteStream(tmp);
+    let done = false;
+    const cleanup = () => { try { rmSync(tmp, { force: true }); } catch { /* ignore */ } };
+    const fail = (msg) => {
+      if (done) return; done = true;
+      try { ws.destroy(); } catch { /* ignore */ }
+      cleanup();
+      if (!res.headersSent) sendJson(res, 400, { error: msg });
+    };
+    // A dropped/aborted upload never reaches ws 'finish', so respond on req error.
+    req.on('error', () => fail('upload failed'));
+    req.on('aborted', () => fail('upload aborted'));
+    ws.on('error', () => fail('could not buffer upload'));
+    ws.on('finish', () => {
+      if (done) return; done = true;
+      try {
+        const result = bundleStore.importBundleFromFile(tmp, { mode });
+        if (result.conflict) sendJson(res, 409, { ...result, error: 'a session with this id already exists' });
+        else sendJson(res, 200, result);
+      } catch (e) {
+        sendJson(res, 400, { error: String(e.message || e) });
+      } finally { cleanup(); }
+    });
+    req.pipe(ws);
     return;
   }
   // ----- Session export (render the switch log to one MP4) -----

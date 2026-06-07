@@ -16,7 +16,7 @@
     "build:bundle": "node build/build-sea.mjs --bundle-only",
     "build:exe": "node build/build-sea.mjs",
     "build:installer": "node build/build-installer.mjs",
-    "test": "node --test control/test/control.test.mjs control/test/export.test.mjs control/test/http-range.test.mjs"
+    "test": "node --test control/test/control.test.mjs control/test/export.test.mjs control/test/http-range.test.mjs control/test/bundle.test.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"

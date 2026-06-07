@@ -233,6 +233,8 @@ function usage() {
   console.log('  certs   install the local CA and issue a LAN TLS cert');
   console.log('  up      start the full stack in the background (stop with `down`)');
   console.log('  down    stop the stack');
+  console.log('  bundle  <sessionId> [out]  write a portable session bundle (.tar)');
+  console.log('  import  <bundle.tar>       import a session bundle made on another computer');
 }
 
 export async function runCli(args) {
@@ -251,6 +253,34 @@ export async function runCli(args) {
       case 'start': await launch(prefIp); break;
       case 'up': await up(prefIp); break;
       case 'down': down(); break;
+      case 'bundle': {
+        // Write a portable bundle (.tar) for one session, to import on another PC.
+        const pos = rest.filter((a) => !a.startsWith('--'));
+        const sid = pos[0];
+        if (!sid) { console.error('Usage: multicam bundle <sessionId> [outFile]'); process.exitCode = 1; break; }
+        const out = pos[1] || `${sid}.studiobundle.tar`;
+        const { bundleToFile } = await import('../control/bundle.mjs');
+        const r = await bundleToFile(sid, out);
+        console.log(`Wrote ${r.outPath}  (${r.clips} clip${r.clips === 1 ? '' : 's'}).`);
+        break;
+      }
+      case 'import': {
+        // Import a session bundle made on another PC. Default refuses a duplicate
+        // sessionId; --replace overwrites it, --as-copy imports under a new id.
+        const pos = rest.filter((a) => !a.startsWith('--'));
+        const file = pos[0];
+        if (!file) { console.error('Usage: multicam import <bundle.tar> [--replace|--as-copy]'); process.exitCode = 1; break; }
+        const mode = rest.includes('--replace') ? 'replace' : rest.includes('--as-copy') ? 'copy' : 'skip';
+        const { importBundleFromFile } = await import('../control/bundle.mjs');
+        const r = importBundleFromFile(file, { mode });
+        if (r.conflict) {
+          console.error(`A session "${r.sessionId}" already exists here. Re-run with --replace or --as-copy.`);
+          process.exitCode = 1;
+        } else {
+          console.log(`Imported session ${r.sessionId}: ${r.placed} new clip${r.placed === 1 ? '' : 's'}, ${r.cameras} camera${r.cameras === 1 ? '' : 's'}${r.mode === 'copy' ? ' (as a new copy)' : ''}.`);
+        }
+        break;
+      }
       case 'urls': {
         // Machine-readable URLs for the tray launcher (stdout only). The
         // `phone=` key name is wire-protocol with tray.ps1 — kept for compat

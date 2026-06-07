@@ -23,6 +23,15 @@ about this:
 - The control HTTP API (`:9000`), MediaMTX API (`:9997`), and WHIP/WHEP
   signalling (`:8889`) bind to `127.0.0.1` and aren't reachable from the LAN
   directly.
+- **Session import** (`POST /api/sessions/import`, used by the dashboard's
+  "Import…" button) is a write surface — it unpacks an uploaded bundle into
+  `recordings/`. The archive is parsed in-process and every entry is validated
+  (only `recordings/<id>/<file>` with safe single-segment names; absolute, `..`,
+  drive-letter, UNC and non-regular entries are rejected) before any byte is
+  written, and the manifest is schema-checked. Like the rest of the API it is
+  **not authenticated** — within the LAN-trusted model, anyone who can reach the
+  dashboard can import. To avoid the network surface entirely, import locally
+  instead (`multicam import <bundle.tar>` or the tray "Import session bundle…").
 - TLS uses a locally-installed mkcert root CA. Each device trusts it once;
   it's not a public CA.
 

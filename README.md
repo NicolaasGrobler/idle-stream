@@ -221,6 +221,28 @@ The switch log records the operator's *intent* — it does not produce a live
 switched output. (Live switched streaming is intentionally out of scope; see
 [plan.md](plan.md#future-live-streaming-not-v1).)
 
+## Move a session to another computer
+
+Preview and export are CPU-heavy (the preview decodes every angle in the browser;
+the export re-encodes through ffmpeg). On a slow laptop, you can do the recording
+there and the **post-production on a faster machine**:
+
+1. On the recording laptop, open **Recordings ▸ Sessions** and click **Bundle**
+   on the session. You get one `*.studiobundle.tar` — the switch log plus every
+   per-angle clip (cameras *and* mics), stored uncompressed (the video is already
+   compressed) with a manifest that preserves each clip's timing.
+2. Copy that file to the faster machine (USB stick, network share, whatever).
+3. On the faster machine running the studio, open **Recordings** and click
+   **Import…** (or run `multicam import <bundle.tar>`, or use the tray's
+   *Import session bundle…*). The session appears under **Sessions**, ready to
+   Preview and Export at full speed.
+
+The bundle carries the lossless masters, so it's as large as the footage —
+compression wouldn't shrink already-encoded video. The import restores each
+clip's original timestamp, which is what lets the other machine line the angles
+up correctly; that's why a plain drag-copy or "Extract All" (which resets
+timestamps) is **not** a substitute for the bundle.
+
 ## Ports & firewall
 
 | Port | Proto | Purpose | Exposure |
@@ -276,7 +298,7 @@ transitions ([#2](https://github.com/openidle-dev/idle-stream/issues/2)), screen
 ```
 phone-pwa/            Device capture client (WHIP + control WS) — phones, webcams, screen share, audio-only
 operator-dashboard/   Operator UI (control WS + WHEP grid + switch log + export)
-control/              Node control service (cameras, slots, record, switch log, export) + tests
+control/              Node control service (cameras, slots, record, switch log, export, session bundles) + tests
 mediamtx/             MediaMTX config template (dev-up renders the per-network copy)
 dev-server.mjs        TLS static server + WHIP/WHEP/WS reverse proxy
 cli/                  Cross-platform launcher (npm run setup|certs|up|down)
