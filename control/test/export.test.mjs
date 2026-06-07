@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planSegments, planParts, fileForCam, planXfade, sectionAudio } from '../exports.mjs';
+import { planSegments, planParts, fileForCam, planXfade, sectionAudio, lastErrorLine } from '../exports.mjs';
 
 test('planSegments: no switches -> one segment on the first camera', () => {
   const s = { durationSec: 10, cameras: [{ id: 'cam1' }, { id: 'cam2' }], switches: [] };
@@ -74,6 +74,23 @@ test('planXfade: clamps the fade to the shortest part, and bails when too short'
   // A part shorter than the 0.1 floor -> crossfade can't apply (caller hard-cuts).
   assert.equal(planXfade([{ dur: 3 }, { dur: 0.12 }, { dur: 3 }], 0.5), null);
   assert.equal(planXfade([{ dur: 5 }], 0.5), null);            // single part -> no transition
+});
+
+test('lastErrorLine: pulls the real error out of an ffmpeg banner dump', () => {
+  // The concat failure from the field report: the banner + the actual error. We
+  // want the meaningful line, not the version string.
+  const dump = [
+    'ffmpeg version N-1 Copyright (c) 2000-2026',
+    '  configuration: --extra-version=20260530',
+    '  libavutil 60. 31.100',
+    "[in#0 @ 000002896fa80ec0] Impossible to open 'seg0000.ts'",
+    'Error opening input file list.txt.',
+    'Error opening input files: Invalid data found when processing input',
+  ].join('\n');
+  assert.equal(lastErrorLine(dump), 'Error opening input files: Invalid data found when processing input');
+  // No error-ish line -> fall back to the last non-empty line.
+  assert.equal(lastErrorLine('frame=  10\nframe=  20\n'), 'frame=  20');
+  assert.equal(lastErrorLine(''), '');
 });
 
 test('sectionAudio: explicit override wins; else linked mic; else camera-only', () => {

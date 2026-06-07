@@ -13,9 +13,11 @@
 // ended — is filled with black + silence so the output stays aligned with the
 // logged offsets. The active camera's own audio is used per segment.
 import { spawn, execFile } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync, statSync, openSync, closeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { listRecordings, resolveRecording } from './recordings.mjs';
 import { serveRangedFile } from './http-range.mjs';
 
@@ -367,14 +369,52 @@ function partArgs(part, out, vcodec) {
     '-map', vmap, '-map', amap, ...ENC, out];
 }
 
+// The most relevant line of an ffmpeg stderr dump — the last one that looks like
+// an error — so the dashboard shows "Impossible to open 'seg0000.ts'" instead of
+// the whole multi-line version banner. Exported for testing.
+export function lastErrorLine(stderr) {
+  const lines = String(stderr).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/error|invalid|impossible|no such|unable|failed|denied|permission|not found|no space/i.test(lines[i])) {
+      return lines[i];
+    }
+  }
+  return lines[lines.length - 1] || '';
+}
+
 function run(bin, args, cwd) {
   return new Promise((resolve, reject) => {
     const p = spawn(bin, args, { cwd, windowsHide: true });
     let err = '';
     p.stderr.on('data', (d) => { err += d; if (err.length > 8000) err = err.slice(-8000); });
     p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${err.slice(-600)}`))));
+    p.on('close', (code) => {
+      if (code === 0) { resolve(); return; }
+      console.error(`ffmpeg failed (exit ${code}):\n${err}`);   // full detail -> logs/control.err.log
+      reject(new Error(`ffmpeg failed: ${lastErrorLine(err) || `exit ${code}`}`));
+    });
   });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Confirm every rendered segment is actually openable before the stitch pass.
+// A just-written file can be briefly locked by antivirus / a file indexer; rather
+// than letting that surface as a cryptic concat failure, poll-open each one and
+// only give up (with a clear message) after a few tries.
+async function ensureReadable(paths, attempts = 5, delayMs = 200) {
+  for (const p of paths) {
+    let lastErr;
+    let ok = false;
+    for (let a = 0; a < attempts; a++) {
+      try { closeSync(openSync(p, 'r')); ok = true; break; }
+      catch (e) { lastErr = e; await sleep(delayMs); }
+    }
+    if (!ok) {
+      const name = p.split(/[\\/]/).pop();
+      throw new Error(`temp segment "${name}" is locked or missing (${(lastErr && lastErr.code) || lastErr}) — antivirus or file sync may be holding it; try the export again`);
+    }
+  }
 }
 
 // Kick off (or return) an async export for a session. Progress is part-based.
@@ -393,7 +433,13 @@ export function startExport(session, opts = {}) {
 
 async function runExport(session, job, opts = {}) {
   mkdirSync(EXPORTS, { recursive: true });
-  const work = join(EXPORTS, `.work-${session.sessionId}`);
+  // Build the intermediate .ts segments in the OS temp dir, NOT inside the app
+  // folder. If the install lives under a OneDrive-synced location (older builds
+  // installed into Documents), OneDrive locks the freshly-written segments and the
+  // concat pass fails to reopen them ("Impossible to open seg0000.ts"). %TEMP% is
+  // local and unsynced. The random suffix also isolates a retried/concurrent run
+  // of the same session from a previous one's scratch dir.
+  const work = join(tmpdir(), `multicam-export-${session.sessionId}-${randomBytes(4).toString('hex')}`);
   rmSync(work, { recursive: true, force: true });
   mkdirSync(work, { recursive: true });
   try {
@@ -403,22 +449,34 @@ async function runExport(session, job, opts = {}) {
     if (!parts.length) throw new Error('nothing to export (no segments)');
     const ff = ffmpegPath();
     const segName = (i) => `seg${String(i).padStart(4, '0')}.ts`;
-    const listLines = [];
+    const segPaths = [];
     for (let i = 0; i < parts.length; i++) {
       const seg = segName(i);
       await run(ff, partArgs(parts[i], seg, vcodec), work);
-      listLines.push(`file '${seg}'`);
+      // Fail fast (and clearly) if the encoder produced nothing — far better than a
+      // cryptic concat error many segments later.
+      const segPath = join(work, seg);
+      const st = existsSync(segPath) ? statSync(segPath) : null;
+      if (!st || st.size === 0) {
+        throw new Error(`render produced no data for segment ${i + 1}/${parts.length} — the ${vcodec} encoder may have failed; retry, or set MULTICAM_ENCODER=libx264`);
+      }
+      segPaths.push(segPath);
       job.progress = round3((i + 1) / (parts.length + 1));   // leave headroom for the final pass
     }
     const out = join(EXPORTS, `${session.sessionId}.mp4`);
     rmSync(out, { force: true });
+    // Ride out a transient lock on any just-written segment before the stitch.
+    await ensureReadable(segPaths);
     // Crossfade if requested AND it actually fits the parts; else hard-cut concat.
     const plan = opts.crossfade ? planXfade(parts, Number(opts.fade) || 0.5) : null;
     if (plan) {
       await run(ff, xfadeArgs(parts, segName, plan, out, vcodec), work);
     } else {
-      writeFileSync(join(work, 'list.txt'), listLines.join('\n'));
-      await run(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', '-bsf:a', 'aac_adtstoasc', out], work);
+      // Absolute, forward-slash paths so concat never depends on cwd or on Windows
+      // backslash quoting quirks.
+      const listPath = join(work, 'list.txt');
+      writeFileSync(listPath, segPaths.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n'));
+      await run(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', out], work);
     }
     job.file = out;
     job.progress = 1;
