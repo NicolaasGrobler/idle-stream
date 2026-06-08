@@ -1,6 +1,6 @@
 {
   "name": "wireless-multicam-studio",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Turn phones into a synchronized multi-angle recording rig over your LAN.",
   "type": "module",
   "license": "MIT",
