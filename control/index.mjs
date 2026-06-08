@@ -7,8 +7,9 @@
 // see the trusted origin. Cameras are persisted to data/cameras.json.
 import { createServer } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { createWriteStream, rmSync } from 'node:fs';
+import { createWriteStream, rmSync, readFileSync } from 'node:fs';
 
 import { SessionState, makeCamera, makePhone } from './state.mjs';
 import { MediaMTX } from './mediamtx.mjs';
@@ -25,6 +26,17 @@ import { serveRangedFile } from './http-range.mjs';
 // the event ended). The grace window tolerates brief WiFi blips — a phone that
 // reconnects within it resumes publishing and the timer resets.
 const AUTO_STOP_GRACE_S = 30;
+
+// App version for the dashboard footer. The build (esbuild) injects
+// __MULTICAM_VERSION__ from package.json — the single source of truth, same value
+// stamped into the exe metadata — so the packaged app (where package.json isn't on
+// disk) still knows it. In dev (unbundled) fall back to reading package.json.
+const APP_VERSION = (typeof __MULTICAM_VERSION__ !== 'undefined' && __MULTICAM_VERSION__) || (() => {
+  try {
+    const root = process.env.MULTICAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..');
+    return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version || 'dev';
+  } catch { return 'dev'; }
+})();
 
 const randId = () => randomBytes(4).toString('hex');   // 8 hex chars, like uuid4().hex[:8]
 const round3 = (x) => Math.round(x * 1000) / 1000;
@@ -722,6 +734,10 @@ function handleHttp(svc, req, res) {
       'content-type': 'video/mp4',
       'content-disposition': `inline; filename="${cam}_${name}"`,
     });
+    return;
+  }
+  if (req.method === 'GET' && path === '/api/version') {
+    sendJson(res, 200, { version: APP_VERSION });
     return;
   }
   sendJson(res, 404, { error: 'not found' });

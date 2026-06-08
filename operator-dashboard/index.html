@@ -40,7 +40,8 @@
     .dd-item.dis:hover { background: transparent; }
     .dd.compact .dd-btn { padding: 6px 9px; font-size: 12px; }
     main { flex: 1; display: flex; min-height: 0; }
-    #side { width: 320px; border-right: 1px solid #222; padding: 12px; overflow: auto; }
+    #side { width: 320px; border-right: 1px solid #222; padding: 12px; overflow: auto; display: flex; flex-direction: column; }
+    .app-version { margin-top: auto; padding-top: 12px; color: #555; font-size: 11px; text-align: center; letter-spacing: 0.04em; }
     #side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 4px 0 10px; display: flex; align-items: center; }
     .card { background: #141414; border: 1px solid #222; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
     .camrow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
@@ -59,6 +60,12 @@
     .phone.off { opacity: 0.6; }
     .phone select { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #0f0f0f; color: #e8e8e8; }
     .empty { color: #666; font-size: 13px; padding: 6px 0; }
+    /* Centered busy/loading state (import, tab loading) — a spinner ring + a
+       primary line and an optional hint. Reuses the pl-spin keyframe. */
+    .busy-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 40px 16px; text-align: center; }
+    .busy-state .ring { width: 38px; height: 38px; border: 4px solid rgba(255,255,255,0.12); border-top-color: #16a34a; border-radius: 50%; animation: pl-spin 0.8s linear infinite; }
+    .busy-state .bt { font-size: 14px; font-weight: 600; color: #e8e8e8; word-break: break-all; }
+    .busy-state .bs { font-size: 12px; color: #777; max-width: 360px; }
     /* grid-auto-rows: max-content keeps each row as tall as the tile's 16:9 box.
        Without it, the grid (a definite-height flex child) collapses the auto rows
        shorter than the tiles, so tiles overflow and overlap the row below. */
@@ -143,6 +150,21 @@
     .act.danger:hover { border-color: #dc2626; color: #f87171; background: #1d1d1d; }
     .act .spin { display: inline-flex; animation: pl-spin 0.8s linear infinite; }
     .act .spin svg { width: 15px; height: 15px; }
+    /* Popup action menu — groups a row's secondary actions behind one ⋯ button,
+       each as a clearly-labelled item (no more unlabelled icon buttons). */
+    .menu { position: fixed; z-index: 120; background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 6px; min-width: 214px; box-shadow: 0 12px 34px rgba(0,0,0,0.55); }
+    .menu button { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: flex-start; background: transparent; border: 0; padding: 9px 10px; border-radius: 7px; font-size: 13px; font-weight: 500; color: #e8e8e8; }
+    .menu button:hover { background: #262626; }
+    .menu button:disabled { opacity: 0.4; cursor: default; background: transparent; }
+    .menu button.danger { color: #f87171; }
+    .menu button.danger:hover { background: #2a1717; }
+    .menu svg { width: 15px; height: 15px; flex: none; opacity: 0.85; }
+    .menu .sep { height: 1px; background: #2a2a2a; margin: 5px 6px; }
+    /* The Import control is a <label> wrapping a hidden file input, so button.sm /
+       button.stop (button-scoped) never styled it. Make it look like its siblings. */
+    .rec-import { font: inherit; font-size: 12px; font-weight: 600; padding: 5px 9px; border-radius: 8px; border: 1px solid #333; background: #2a2a2a; color: #e8e8e8; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .rec-import:hover { background: #333; }
+    .rec-import svg { width: 14px; height: 14px; }
     /* Pre-flight checklist */
     .pf-verdict { display: inline-block; margin-bottom: 10px; font-size: 14px; }
     .pf-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #1c1c1c; }
@@ -211,8 +233,7 @@
     <button id="preflightBtn" class="stop sm">Pre-flight</button>
     <button id="recordingsBtn" class="stop sm">Recordings</button>
     <div class="spacer"></div>
-    <button id="previewAll" class="go">Start Preview (all)</button>
-    <button id="stopAll" class="stop">Stop Preview</button>
+    <button id="previewToggle" class="go">Start Preview</button>
     <button id="recBtn" class="rec"><span aria-hidden="true">●</span> Record</button>
     <button id="stopRecBtn" class="stop" disabled>Stop Recording</button>
   </header>
@@ -231,6 +252,8 @@
 
       <h2>Switch log</h2>
       <div id="switchlogList" class="card"></div>
+
+      <div id="appVersion" class="app-version"></div>
     </div>
     <div id="grid"></div>
   </main>
@@ -263,6 +286,9 @@
       refresh: svg('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
       warn: svg('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
       box: svg('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'),
+      save: svg('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>'),
+      upload: svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
+      more: svg('<circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/>', true),
     };
 
     // While the operator is mid-interaction in the side panel (dropdown open or
@@ -536,6 +562,11 @@
         setBadge($('recstate'), 'muted', 'not recording');
         $('recBtn').disabled = liveCount === 0; $('stopRecBtn').disabled = true;
       }
+      // One Preview button that toggles label/role on the live preview state
+      // (mirrors Record's two-state look without the second button hogging space).
+      const pv = $('previewToggle');
+      pv.textContent = lastState.previewing ? 'Stop Preview' : 'Start Preview';
+      pv.className = lastState.previewing ? 'stop' : 'go';
     }
     function fmtElapsed() {
       if (!lastState.recordingStartedAt) return '';
@@ -552,8 +583,10 @@
       const label = await showModal({ title: 'Add audio source', input: { placeholder: 'e.g. DJI Mic A' }, confirmLabel: 'Add' });
       if (label) send({ type: 'addAudioSource', label });
     });
-    $('previewAll').addEventListener('click', () => send({ type: 'startPreview' }));
-    $('stopAll').addEventListener('click', () => send({ type: 'stopPreview' }));
+    $('previewToggle').addEventListener('click', () => send({ type: lastState.previewing ? 'stopPreview' : 'startPreview' }));
+    // App version in the sidebar footer (served by the control API; baked from
+    // package.json at build, so it's correct in the packaged app too).
+    fetch('/api/version').then((r) => r.json()).then((j) => { if (j && j.version) $('appVersion').textContent = 'Wireless Multicam Studio · v' + j.version; }).catch(() => {});
     $('recBtn').addEventListener('click', startRecordingFlow);
     $('stopRecBtn').addEventListener('click', () => send({ type: 'stopRecording' }));
 
@@ -648,35 +681,28 @@
       });
     }
 
-    // Per-session export control (button / progress / download), driven by the
-    // /api/export job map. `i` is the index into the full sessions array.
+    // Per-session export: ONE primary button reflecting the /api/export job state.
+    // Idle → Export, running → live %, ready → Play (open the rendered MP4 in-app —
+    // it's already on disk, no download needed), error → Retry. Everything else
+    // (Save MP4 to…, Re-export, bundle, delete) lives in the row's ⋯ menu.
     function exportControl(sid, name, i, exports) {
       const ex = (exports || {})[sid];
       if (ex && ex.status === 'running') {
-        return `<button class="act sess-export" data-idx="${i}" disabled>Exporting ${Math.round((ex.progress || 0) * 100)}%</button>`;
+        return `<button class="act sess-export-start" data-idx="${i}" disabled><span class="spin">${ICON.refresh}</span> Exporting ${Math.round((ex.progress || 0) * 100)}%</button>`;
       }
       if (ex && ex.ready) {
-        return `<a class="act primary" href="/api/export/download?id=${encodeURIComponent(sid)}" download="${escapeHtml(name || sid)}.mp4" title="Download rendered MP4">${ICON.download} MP4</a>`
-          + `<button class="act icononly sess-export" data-idx="${i}" title="Re-export" aria-label="Re-export">${ICON.refresh}</button>`;
+        return `<button class="act primary sess-play-export" data-idx="${i}" title="Play the rendered MP4">${ICON.play} Play</button>`;
       }
       if (ex && ex.status === 'error') {
-        return `<button class="act danger sess-export" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">${ICON.warn} Retry</button>`;
+        return `<button class="act danger sess-export-start" data-idx="${i}" title="${escapeHtml(ex.error || 'export failed')}">${ICON.warn} Retry</button>`;
       }
-      return `<button class="act sess-export" data-idx="${i}" title="Render the program edit to one MP4">${ICON.download} Export</button>`;
+      return `<button class="act sess-export-start" data-idx="${i}" title="Render the program edit to one MP4">${ICON.download} Export</button>`;
     }
 
-    // Per-session bundle: a store-only .tar (clips + switch log + manifest) to
-    // carry the whole session to another, faster computer and preview/export it
-    // there. Two actions: "Bundle" writes it straight to a folder on THIS laptop
-    // (the dashboard and control service share the disk, so no slow browser
-    // download); the icon button lets the operator pick a destination instead
-    // (e.g. a USB drive). The server builds it on the fly either way.
+    // Portable bundle filename: a store-only .tar (clips + switch log + manifest)
+    // to carry the whole session to another, faster computer.
     function bundleFilename(sid, name) {
       return (String(name || sid).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'session') + '.studiobundle.tar';
-    }
-    function bundleControl(sid, name, i) {
-      return `<button class="act sess-bundle" data-idx="${i}" title="Save a portable bundle (clips + switch log) to this computer's bundles folder">${ICON.box} Bundle</button>`
-        + `<button class="act icononly sess-bundle-as" data-idx="${i}" data-fn="${escapeHtml(bundleFilename(sid, name))}" title="Save the bundle to a location you choose (e.g. a USB drive)" aria-label="Save bundle to…">${ICON.download}</button>`;
     }
 
     // Put a button into a spinning "busy" state and return handles to update the
@@ -763,6 +789,52 @@
       document.body.appendChild(a); a.click(); a.remove();
     }
 
+    // "Save to…" for a rendered export — same shape as saveBundleAs: stream the
+    // already-rendered MP4 straight to a destination the operator picks via the
+    // File System Access API (skipping the Downloads folder and any second copy),
+    // with a live percentage. Falls back to a normal browser download where the
+    // picker API is missing (Firefox/Safari). The default path is still the plain
+    // "MP4" download button / the auto-download on completion — this only adds the
+    // ability to override where it lands.
+    async function saveExportAs(session, fn, btn) {
+      if (!session) return;
+      const url = `/api/export/download?id=${encodeURIComponent(session.sessionId)}`;
+      if (!window.showSaveFilePicker) { downloadBundle(url, fn); return; }
+      let handle;
+      try {
+        handle = await window.showSaveFilePicker({
+          suggestedName: fn,
+          types: [{ description: 'MP4 video', accept: { 'video/mp4': ['.mp4'] } }],
+        });
+      } catch (e) { if (e && e.name === 'AbortError') return; }   // operator cancelled the picker
+      if (!handle) return;
+      const busy = busyButton(btn, 'Saving…');
+      let writable;
+      try {
+        const res = await fetch(url);
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        const total = Number(res.headers.get('content-length')) || 0;
+        writable = await handle.createWritable();
+        const reader = res.body.getReader();
+        let written = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writable.write(value);
+          written += value.length;
+          busy.set(total ? `${Math.floor((written / total) * 100)}% (${fmtBytes(written)} / ${fmtBytes(total)})` : fmtBytes(written));
+        }
+        await writable.close();
+        writable = null;
+        await showModal({ title: 'Export saved', message: `Saved ${escapeHtml(handle.name || fn)}.`, confirmLabel: 'OK' });
+      } catch (e) {
+        if (writable) { try { await writable.abort(); } catch { /* already gone */ } }
+        await showModal({ title: 'Save failed', message: String(e.message || e), confirmLabel: 'OK' });
+      } finally {
+        busy.done();
+      }
+    }
+
     // Total bytes of the clips that belong to a session — the same per-camera
     // files the bundle/export match by mtime window (filesForCam), summed. Shown
     // on each card so the operator knows how big a bundle/download will be.
@@ -797,10 +869,9 @@
             <div class="sc-title">${escapeHtml(sessionTitle(s))}</div>
             <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'} · ${fmtBytes(bytes)}</div>
             <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
-          </div><button class="act primary sess-preview" data-idx="${i}">${ICON.play} Preview</button>`
+          </div><button class="act primary sess-preview" data-idx="${i}" title="Preview the program edit from the camera angles">${ICON.play} Preview</button>`
           + exportControl(s.sessionId, s.name, i, exports)
-          + bundleControl(s.sessionId, s.name, i)
-          + `<button class="act icononly danger sess-del" data-idx="${i}" title="Delete session" aria-label="Delete session">${ICON.trash}</button></div>`;
+          + `<button class="act icononly sess-more" data-idx="${i}" title="More actions" aria-label="More actions">${ICON.more}</button></div>`;
         }).reverse().join('');
       return sub + subtabs + (cards || '<div class="empty">No sessions for this camera.</div>');
     }
@@ -839,7 +910,7 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `<div class="modal recmodal">
         <div class="rec-head"><h3>Recordings</h3><span class="spacer"></span>
-          <label class="sm stop rec-import" title="Import a session bundle (.tar) made on another computer">Import…<input type="file" accept=".tar,application/x-tar" hidden></label>
+          <label class="rec-import" title="Import a session bundle (.tar) made on another computer">${ICON.upload} Import<input type="file" accept=".tar,application/x-tar" hidden></label>
           <button class="sm stop rec-refresh">Refresh</button>
           <button class="sm stop rec-close">Close</button></div>
         <div class="rec-tabs">
@@ -868,9 +939,13 @@
       // streamed straight as the fetch body (no client-side buffering). A duplicate
       // sessionId comes back 409 — offer Replace, then Import-as-copy.
       const importInput = overlay.querySelector('.rec-import input');
+      // A centered spinner + label for a transient busy state in the modal body.
+      const busyState = (title, hint) =>
+        `<div class="busy-state"><div class="ring"></div><div class="bt">${escapeHtml(title)}</div>`
+        + (hint ? `<div class="bs">${escapeHtml(hint)}</div>` : '') + '</div>';
       async function doImport(file, mode) {
         if (!file) return;
-        body.textContent = `Importing ${file.name}…`;
+        body.innerHTML = busyState(`Importing ${file.name}…`, 'Unpacking clips into your library — large sessions can take a moment.');
         try {
           const qs = mode ? `?mode=${encodeURIComponent(mode)}` : '';
           const res = await fetch(`/api/sessions/import${qs}`, { method: 'POST', body: file });
@@ -898,6 +973,47 @@
       }
       importInput.addEventListener('change', () => doImport(importInput.files[0]));
 
+      // Kick off (or re-run) an export for a session: pick options, POST, then
+      // poll. `btn` is the button to show a transient "Starting…" on.
+      async function startExportFlow(sid, btn) {
+        const opt = await chooseExportOptions();
+        if (!opt) return;
+        if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+        try {
+          const qs = `id=${encodeURIComponent(sid)}` + (opt.crossfade ? `&crossfade=1&fade=${opt.fade}` : '');
+          const res = await fetch(`/api/export?${qs}`, { method: 'POST' });
+          if (!res.ok) {
+            const msg = await res.json().then((j) => j.error).catch(() => `HTTP ${res.status}`);
+            throw new Error(msg || `HTTP ${res.status}`);
+          }
+          startedExports.add(sid);
+          autoActed.delete(sid);
+        } catch (e) {
+          showModal({ title: 'Export failed to start', message: String(e.message || e), confirmLabel: 'OK' });
+        }
+        pollExports();
+      }
+
+      // The ⋯ menu for a session row — groups every secondary action behind one
+      // button, each clearly labelled. Export-specific items appear only once a
+      // render exists. Long-running saves show progress on the ⋯ button itself.
+      function openSessionMenu(s, anchor) {
+        const name = s.name || s.sessionId;
+        const ex = (data.exports || {})[s.sessionId];
+        const items = [];
+        if (ex && ex.ready) {
+          items.push({ icon: ICON.download, label: 'Download MP4', onClick: () => downloadBundle(`/api/export/download?id=${encodeURIComponent(s.sessionId)}`, `${name}.mp4`) });
+          items.push({ icon: ICON.save, label: 'Save MP4 to…', onClick: () => saveExportAs(s, `${name}.mp4`, anchor) });
+          items.push({ icon: ICON.refresh, label: 'Re-export', onClick: () => startExportFlow(s.sessionId, null) });
+          items.push({ sep: true });
+        }
+        items.push({ icon: ICON.box, label: 'Save bundle to this PC', onClick: () => saveBundleToFolder(s, anchor) });
+        items.push({ icon: ICON.upload, label: 'Save bundle to…', onClick: () => saveBundleAs(s, bundleFilename(s.sessionId, name), anchor) });
+        items.push({ sep: true });
+        items.push({ icon: ICON.trash, label: 'Delete session', danger: true, onClick: () => deleteSession(s, data.recCams, load) });
+        showMenu(anchor, items);
+      }
+
       function renderTab() {
         tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === active));
         if (active === 'sessions') {
@@ -906,32 +1022,12 @@
             b.addEventListener('click', () => { sessCam = b.dataset.cam; renderTab(); }));
           body.querySelectorAll('.sess-preview').forEach((b) =>
             b.addEventListener('click', () => openSessionPreview(data.sess[Number(b.dataset.idx)], data.recCams)));
-          body.querySelectorAll('.sess-del').forEach((b) =>
-            b.addEventListener('click', () => deleteSession(data.sess[Number(b.dataset.idx)], data.recCams, load)));
-          body.querySelectorAll('.sess-bundle').forEach((b) =>
-            b.addEventListener('click', () => saveBundleToFolder(data.sess[Number(b.dataset.idx)], b)));
-          body.querySelectorAll('.sess-bundle-as').forEach((b) =>
-            b.addEventListener('click', () => saveBundleAs(data.sess[Number(b.dataset.idx)], b.dataset.fn, b)));
-          body.querySelectorAll('.sess-export').forEach((b) =>
-            b.addEventListener('click', async () => {
-              const sid = data.sess[Number(b.dataset.idx)].sessionId;
-              const opt = await chooseExportOptions();
-              if (!opt) return;
-              b.disabled = true; b.textContent = 'Starting…';
-              try {
-                const qs = `id=${encodeURIComponent(sid)}` + (opt.crossfade ? `&crossfade=1&fade=${opt.fade}` : '');
-                const res = await fetch(`/api/export?${qs}`, { method: 'POST' });
-                if (!res.ok) {
-                  const msg = await res.json().then((j) => j.error).catch(() => `HTTP ${res.status}`);
-                  throw new Error(msg || `HTTP ${res.status}`);
-                }
-                startedExports.add(sid);
-                autoActed.delete(sid);     // allow auto-download on this fresh run
-              } catch (e) {
-                showModal({ title: 'Export failed to start', message: String(e.message || e), confirmLabel: 'OK' });
-              }
-              pollExports();
-            }));
+          body.querySelectorAll('.sess-play-export').forEach((b) =>
+            b.addEventListener('click', () => openExportPreview(data.sess[Number(b.dataset.idx)])));
+          body.querySelectorAll('.sess-export-start').forEach((b) =>
+            b.addEventListener('click', () => startExportFlow(data.sess[Number(b.dataset.idx)].sessionId, b)));
+          body.querySelectorAll('.sess-more').forEach((b) =>
+            b.addEventListener('click', () => openSessionMenu(data.sess[Number(b.dataset.idx)], b)));
         } else {
           body.innerHTML = renderClipsTab(data.recCams, clipCam);
           body.querySelectorAll('.clip-subtab').forEach((b) =>
@@ -944,23 +1040,16 @@
       }
       tabs.forEach((t) => t.addEventListener('click', () => { active = t.dataset.tab; renderTab(); }));
 
-      // Poll the export job map while any job is running; re-render so the
-      // Sessions tab reflects live progress and surfaces the download when done.
-      // For exports the operator started this session, auto-download the finished
-      // MP4 (and surface failures) so a click always produces visible feedback.
-      function triggerDownload(sid) {
-        const s = data.sess.find((x) => x.sessionId === sid);
-        const a = document.createElement('a');
-        a.href = `/api/export/download?id=${encodeURIComponent(sid)}`;
-        a.download = ((s && s.name) || sid) + '.mp4';
-        document.body.appendChild(a); a.click(); a.remove();
-      }
+      // Poll the export job map while any job is running; re-render so the Sessions
+      // tab reflects live progress and flips the button to Play when done. No
+      // auto-download — the render already lives on disk; the operator plays it in
+      // the app (or picks Download / Save to… from the ⋯ menu). Failures still toast.
       async function pollExports() {
         try { data.exports = await fetch('/api/export').then((r) => r.json()); } catch { return; }
         for (const sid of startedExports) {
           const j = data.exports[sid];
           if (!j || autoActed.has(sid)) continue;
-          if (j.ready) { autoActed.add(sid); triggerDownload(sid); }
+          if (j.ready) { autoActed.add(sid); }
           else if (j.status === 'error') { autoActed.add(sid); showModal({ title: 'Export failed', message: String(j.error || 'unknown error'), confirmLabel: 'OK' }); }
         }
         if (active === 'sessions') renderTab();
@@ -969,7 +1058,7 @@
       }
 
       async function load() {
-        body.textContent = 'Loading…';
+        body.innerHTML = busyState('Loading…');
         try {
           const [recs, sessions, exports] = await Promise.all([
             fetch('/api/recordings').then((r) => r.json()),
@@ -1048,6 +1137,72 @@
           showModal({ title: 'Delete failed', message: e.message, confirmLabel: 'OK' });
         }
       });
+    }
+
+    // A lightweight popup menu anchored under a button. `items` is a list of
+    // { label, icon?, danger?, disabled?, onClick } (or { sep:true }). Closes on
+    // select, outside-click, Escape, resize or scroll. Used to group a session
+    // row's secondary actions behind one ⋯ button.
+    function showMenu(anchor, items) {
+      const menu = document.createElement('div');
+      menu.className = 'menu';
+      for (const it of items) {
+        if (it.sep) { const s = document.createElement('div'); s.className = 'sep'; menu.appendChild(s); continue; }
+        const b = document.createElement('button');
+        if (it.danger) b.className = 'danger';
+        if (it.disabled) b.disabled = true;
+        b.innerHTML = (it.icon || '') + `<span>${escapeHtml(it.label)}</span>`;
+        b.addEventListener('click', () => { close(); it.onClick && it.onClick(); });
+        menu.appendChild(b);
+      }
+      document.body.appendChild(menu);
+      // Right-align the menu to the anchor, drop it below — flip above if it would
+      // overflow the viewport bottom; clamp to the window edges.
+      const r = anchor.getBoundingClientRect();
+      const mw = menu.offsetWidth, mh = menu.offsetHeight;
+      let left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+      let top = r.bottom + 6;
+      if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+      menu.style.left = `${left}px`; menu.style.top = `${top}px`;
+      function close() {
+        menu.remove();
+        document.removeEventListener('pointerdown', onDoc, true);
+        document.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('resize', close);
+        window.removeEventListener('scroll', close, true);
+      }
+      function onDoc(e) { if (!menu.contains(e.target) && e.target !== anchor) close(); }
+      function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+      // Defer listener attach so the opening click doesn't immediately close it.
+      setTimeout(() => {
+        document.addEventListener('pointerdown', onDoc, true);
+        document.addEventListener('keydown', onKey, true);
+        window.addEventListener('resize', close);
+        window.addEventListener('scroll', close, true);
+      }, 0);
+      return close;
+    }
+
+    // ---------- Exported-MP4 preview (the finished render, already on disk) ----------
+    // Plays exports/<id>.mp4 straight from the control API (faststart + range, so
+    // it seeks instantly) — no need to download a second copy just to watch it.
+    function openExportPreview(session) {
+      if (!session) return;
+      const url = `/api/export/download?id=${encodeURIComponent(session.sessionId)}`;
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `<div class="modal player">
+        <div class="rec-head"><h3>Exported MP4 · ${escapeHtml(sessionTitle(session))}</h3><span class="spacer"></span>
+          <button class="sm stop exp-close">Close</button></div>
+        <div class="player-stage"><video class="active" controls autoplay playsinline></video></div></div>`;
+      document.body.appendChild(overlay);
+      const v = overlay.querySelector('video');
+      v.src = url;
+      const close = () => { v.pause(); v.removeAttribute('src'); v.load(); overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey, true);
+      overlay.querySelector('.exp-close').addEventListener('click', close);
+      overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) close(); });
     }
 
     // ---------- Single-clip preview (native controls) ----------

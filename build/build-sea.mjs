@@ -49,6 +49,9 @@ async function bundle() {
     // ws optionally requires these native addons and degrades gracefully without
     // them; keep them external so the pure-JS path is bundled.
     external: ['bufferutil', 'utf-8-validate'],
+    // Bake the version into the bundle so the packaged app (no package.json on
+    // disk) can serve it to the dashboard. Single source of truth = package.json.
+    define: { __MULTICAM_VERSION__: JSON.stringify(VERSION) },
     logLevel: 'info',
   });
   console.log(`Bundled -> ${BUNDLE}`);
