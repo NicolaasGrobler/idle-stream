@@ -625,6 +625,20 @@ function handleHttp(svc, req, res) {
     if (!bundleStore.serveBundle(id, req, res)) sendJson(res, 404, { error: 'session not found' });
     return;
   }
+  // Write the bundle straight to a folder on THIS machine (the operator's laptop)
+  // instead of streaming it back as a browser download. No dest is taken from the
+  // client — it always lands in the app's bundles/ folder — so there's no
+  // server-side path to validate. Returns the absolute path it wrote.
+  if (req.method === 'POST' && path === '/api/sessions/bundle/save') {
+    const id = url.searchParams.get('id') ?? '';
+    bundleStore.saveBundle(id)
+      .then((r) => sendJson(res, 200, { ok: true, path: r.outPath, clips: r.clips }))
+      .catch((e) => {
+        const msg = String(e.message || e);
+        sendJson(res, /session not found/.test(msg) ? 404 : 500, { error: msg });
+      });
+    return;
+  }
   // Receive an uploaded bundle. The body is a (possibly multi-GB) tar, so stream
   // it straight to a temp file — never buffer it in memory like the JSON routes.
   if (req.method === 'POST' && path === '/api/sessions/import') {

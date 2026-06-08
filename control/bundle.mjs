@@ -34,6 +34,7 @@ import { loadSessions, appendSession, deleteSession } from './switches.mjs';
 const ROOT = process.env.MULTICAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..');
 const RECORDINGS = join(ROOT, 'recordings');
 const EXPORTS = join(ROOT, 'exports');
+const BUNDLES = join(ROOT, 'bundles');
 
 const SAFE = /^[A-Za-z0-9._-]+$/;     // single path segment (mirrors recordings.mjs)
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;   // session id (mirrors exports.mjs)
@@ -233,6 +234,22 @@ export function serveBundle(sessionId, req, res) {
 export async function bundleToFile(sessionId, outPath) {
   const plan = planBundle(sessionId);
   if (!plan) throw new Error(`session not found: ${sessionId}`);
+  const entries = entriesFor(plan.clips);
+  await writeBundleFile(outPath, manifestJson(plan.session, plan.clips), entries);
+  return { outPath, clips: entries.length, sessionId: plan.session.sessionId };
+}
+
+// Write a session's bundle straight to a folder ON THIS MACHINE and return the
+// path — the operator dashboard and the control service run on the same laptop,
+// so there's no reason to round-trip a multi-GB archive out through a browser
+// download to land it on the same disk. Defaults to the app's bundles/ folder
+// (created on demand); the dir is auto-named after the session, like serveBundle.
+export async function saveBundle(sessionId, dir) {
+  const plan = planBundle(sessionId);
+  if (!plan) throw new Error(`session not found: ${sessionId}`);
+  const outDir = dir || BUNDLES;
+  mkdirSync(outDir, { recursive: true });
+  const outPath = join(outDir, bundleFilename(plan.session));
   const entries = entriesFor(plan.clips);
   await writeBundleFile(outPath, manifestJson(plan.session, plan.clips), entries);
   return { outPath, clips: entries.length, sessionId: plan.session.sessionId };

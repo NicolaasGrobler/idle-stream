@@ -663,12 +663,67 @@
       return `<button class="act sess-export" data-idx="${i}" title="Render the program edit to one MP4">${ICON.download} Export</button>`;
     }
 
-    // Per-session bundle download: a store-only .tar (clips + switch log + manifest)
-    // to carry the whole session to another, faster computer and preview/export it
-    // there. Plain <a download> — the server builds and streams it on the fly.
-    function bundleControl(sid, name) {
-      const fn = (String(name || sid).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'session') + '.studiobundle.tar';
-      return `<a class="act sess-bundle" href="/api/sessions/bundle?id=${encodeURIComponent(sid)}" download="${escapeHtml(fn)}" title="Download a portable bundle (clips + switch log) to import on another computer">${ICON.box} Bundle</a>`;
+    // Per-session bundle: a store-only .tar (clips + switch log + manifest) to
+    // carry the whole session to another, faster computer and preview/export it
+    // there. Two actions: "Bundle" writes it straight to a folder on THIS laptop
+    // (the dashboard and control service share the disk, so no slow browser
+    // download); the icon button lets the operator pick a destination instead
+    // (e.g. a USB drive). The server builds it on the fly either way.
+    function bundleFilename(sid, name) {
+      return (String(name || sid).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'session') + '.studiobundle.tar';
+    }
+    function bundleControl(sid, name, i) {
+      return `<button class="act sess-bundle" data-idx="${i}" title="Save a portable bundle (clips + switch log) to this computer's bundles folder">${ICON.box} Bundle</button>`
+        + `<button class="act icononly sess-bundle-as" data-idx="${i}" data-fn="${escapeHtml(bundleFilename(sid, name))}" title="Save the bundle to a location you choose (e.g. a USB drive)" aria-label="Save bundle to…">${ICON.download}</button>`;
+    }
+
+    // Write the bundle to the app's bundles/ folder server-side (no browser
+    // download) and show where it landed. Disables the button while it streams.
+    async function saveBundleToFolder(session, btn) {
+      if (!session) return;
+      const restore = btn ? btn.innerHTML : null;
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      try {
+        const res = await fetch(`/api/sessions/bundle/save?id=${encodeURIComponent(session.sessionId)}`, { method: 'POST' });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        await showModal({ title: 'Bundle saved', message: `${j.clips} clip${j.clips === 1 ? '' : 's'} written to:  ${j.path}`, confirmLabel: 'OK' });
+      } catch (e) {
+        await showModal({ title: 'Bundle failed', message: String(e.message || e), confirmLabel: 'OK' });
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+      }
+    }
+
+    // "Save to…" — stream the bundle straight to a destination the operator picks
+    // (a USB drive, say) via the File System Access API, skipping the Downloads
+    // folder and any second copy. Falls back to a normal browser download where
+    // the API is missing (Firefox/Safari).
+    async function saveBundleAs(session, fn) {
+      if (!session) return;
+      const url = `/api/sessions/bundle?id=${encodeURIComponent(session.sessionId)}`;
+      if (!window.showSaveFilePicker) { downloadBundle(url, fn); return; }
+      let handle;
+      try {
+        handle = await window.showSaveFilePicker({
+          suggestedName: fn,
+          types: [{ description: 'Studio session bundle', accept: { 'application/x-tar': ['.tar'] } }],
+        });
+      } catch (e) { if (e && e.name === 'AbortError') return; }   // operator cancelled the picker
+      if (!handle) return;
+      try {
+        const writable = await handle.createWritable();
+        const res = await fetch(url);
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        await res.body.pipeTo(writable);
+      } catch (e) {
+        await showModal({ title: 'Save failed', message: String(e.message || e), confirmLabel: 'OK' });
+      }
+    }
+    function downloadBundle(url, fn) {
+      const a = document.createElement('a');
+      a.href = url; a.download = fn;
+      document.body.appendChild(a); a.click(); a.remove();
     }
 
     function renderSessionsTab(sessions, selected, exports) {
@@ -696,7 +751,7 @@
             <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
           </div><button class="act primary sess-preview" data-idx="${i}">${ICON.play} Preview</button>`
           + exportControl(s.sessionId, s.name, i, exports)
-          + bundleControl(s.sessionId, s.name)
+          + bundleControl(s.sessionId, s.name, i)
           + `<button class="act icononly danger sess-del" data-idx="${i}" title="Delete session" aria-label="Delete session">${ICON.trash}</button></div>`;
         }).reverse().join('');
       return sub + subtabs + (cards || '<div class="empty">No sessions for this camera.</div>');
@@ -805,6 +860,10 @@
             b.addEventListener('click', () => openSessionPreview(data.sess[Number(b.dataset.idx)], data.recCams)));
           body.querySelectorAll('.sess-del').forEach((b) =>
             b.addEventListener('click', () => deleteSession(data.sess[Number(b.dataset.idx)], data.recCams, load)));
+          body.querySelectorAll('.sess-bundle').forEach((b) =>
+            b.addEventListener('click', () => saveBundleToFolder(data.sess[Number(b.dataset.idx)], b)));
+          body.querySelectorAll('.sess-bundle-as').forEach((b) =>
+            b.addEventListener('click', () => saveBundleAs(data.sess[Number(b.dataset.idx)], b.dataset.fn)));
           body.querySelectorAll('.sess-export').forEach((b) =>
             b.addEventListener('click', async () => {
               const sid = data.sess[Number(b.dataset.idx)].sessionId;

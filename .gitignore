@@ -15,6 +15,9 @@ recordings/
 # Rendered session exports (re-generated on demand)
 exports/
 
+# Session bundles saved to disk from the dashboard (re-generated on demand)
+bundles/
+
 # Backups (moved-out recordings + session logs)
 backups/
 
