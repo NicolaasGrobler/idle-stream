@@ -141,6 +141,8 @@
     .act.primary:hover { background: #15913f; }
     .act.icononly { width: 34px; padding: 0; }
     .act.danger:hover { border-color: #dc2626; color: #f87171; background: #1d1d1d; }
+    .act .spin { display: inline-flex; animation: pl-spin 0.8s linear infinite; }
+    .act .spin svg { width: 15px; height: 15px; }
     /* Pre-flight checklist */
     .pf-verdict { display: inline-block; margin-bottom: 10px; font-size: 14px; }
     .pf-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid #1c1c1c; }
@@ -677,12 +679,28 @@
         + `<button class="act icononly sess-bundle-as" data-idx="${i}" data-fn="${escapeHtml(bundleFilename(sid, name))}" title="Save the bundle to a location you choose (e.g. a USB drive)" aria-label="Save bundle to…">${ICON.download}</button>`;
     }
 
+    // Put a button into a spinning "busy" state and return handles to update the
+    // label (e.g. a live percentage) and to restore it. Drops `icononly` while
+    // busy so a tiny icon button can show "Saving…"/"42%" text, and re-adds it
+    // after. Shared by both bundle-save paths.
+    function busyButton(btn, label) {
+      if (!btn) return { set() {}, done() {} };
+      const restore = btn.innerHTML;
+      const wasIconOnly = btn.classList.contains('icononly');
+      btn.disabled = true;
+      btn.classList.remove('icononly');
+      const set = (text) => { btn.innerHTML = `<span class="spin">${ICON.refresh}</span> ${text}`; };
+      set(label);
+      return { set, done() { btn.disabled = false; btn.innerHTML = restore; if (wasIconOnly) btn.classList.add('icononly'); } };
+    }
+
     // Write the bundle to the app's bundles/ folder server-side (no browser
-    // download) and show where it landed. Disables the button while it streams.
+    // download) and show where it landed. The server write is one blocking
+    // request, so the button shows an indeterminate spinner (no byte progress
+    // available) until it returns.
     async function saveBundleToFolder(session, btn) {
       if (!session) return;
-      const restore = btn ? btn.innerHTML : null;
-      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      const busy = busyButton(btn, 'Saving…');
       try {
         const res = await fetch(`/api/sessions/bundle/save?id=${encodeURIComponent(session.sessionId)}`, { method: 'POST' });
         const j = await res.json().catch(() => ({}));
@@ -691,15 +709,17 @@
       } catch (e) {
         await showModal({ title: 'Bundle failed', message: String(e.message || e), confirmLabel: 'OK' });
       } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = restore; }
+        busy.done();
       }
     }
 
     // "Save to…" — stream the bundle straight to a destination the operator picks
     // (a USB drive, say) via the File System Access API, skipping the Downloads
     // folder and any second copy. Falls back to a normal browser download where
-    // the API is missing (Firefox/Safari).
-    async function saveBundleAs(session, fn) {
+    // the API is missing (Firefox/Safari). Because the bundle is store-only the
+    // server sends a Content-Length, so we pump the body chunk-by-chunk and show
+    // a live percentage on the button.
+    async function saveBundleAs(session, fn, btn) {
       if (!session) return;
       const url = `/api/sessions/bundle?id=${encodeURIComponent(session.sessionId)}`;
       if (!window.showSaveFilePicker) { downloadBundle(url, fn); return; }
@@ -711,13 +731,30 @@
         });
       } catch (e) { if (e && e.name === 'AbortError') return; }   // operator cancelled the picker
       if (!handle) return;
+      const busy = busyButton(btn, 'Saving…');
+      let writable;
       try {
-        const writable = await handle.createWritable();
         const res = await fetch(url);
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-        await res.body.pipeTo(writable);
+        const total = Number(res.headers.get('content-length')) || 0;
+        writable = await handle.createWritable();
+        const reader = res.body.getReader();
+        let written = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writable.write(value);
+          written += value.length;
+          busy.set(total ? `${Math.floor((written / total) * 100)}% (${fmtBytes(written)} / ${fmtBytes(total)})` : fmtBytes(written));
+        }
+        await writable.close();
+        writable = null;
+        await showModal({ title: 'Bundle saved', message: `Saved ${escapeHtml(handle.name || fn)}.`, confirmLabel: 'OK' });
       } catch (e) {
+        if (writable) { try { await writable.abort(); } catch { /* already gone */ } }
         await showModal({ title: 'Save failed', message: String(e.message || e), confirmLabel: 'OK' });
+      } finally {
+        busy.done();
       }
     }
     function downloadBundle(url, fn) {
@@ -726,7 +763,17 @@
       document.body.appendChild(a); a.click(); a.remove();
     }
 
-    function renderSessionsTab(sessions, selected, exports) {
+    // Total bytes of the clips that belong to a session — the same per-camera
+    // files the bundle/export match by mtime window (filesForCam), summed. Shown
+    // on each card so the operator knows how big a bundle/download will be.
+    function sessionBytes(session, recCams) {
+      let n = 0;
+      for (const c of (session.cameras || []))
+        for (const f of filesForCam(recCams, c.id, session)) n += f.sizeBytes || 0;
+      return n;
+    }
+
+    function renderSessionsTab(sessions, selected, exports, recCams) {
       if (!sessions.length) return '<div class="empty">No sessions recorded yet. They appear here after you Record → Stop.</div>';
       const sub = `<div class="rec-sub">${sessions.length} session${sessions.length === 1 ? '' : 's'} · <a href="/api/sessions" download="switches.json">Download switches.json</a></div>`;
       // Camera sub-tabs: the union of cameras across all sessions (sessions carry
@@ -743,11 +790,12 @@
         .filter(({ s }) => selected === 'all' || (s.cameras || []).some((c) => c.id === selected))
         .map(({ s, i }) => {
           const takes = (s.switches || []).length;
+          const bytes = sessionBytes(s, recCams);
           const chips = (s.cameras || []).map((c) =>
             `<span class="cam-chip"><i class="cam-dot" style="background:${colorForCam(c.id)}"></i>${escapeHtml(c.label || c.id)}</span>`).join('');
           return `<div class="session-card"><div class="sc-main">
             <div class="sc-title">${escapeHtml(sessionTitle(s))}</div>
-            <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'}</div>
+            <div class="sc-meta">${escapeHtml(new Date((s.startedAt || 0) * 1000).toLocaleString())} · ${fmtOffset(s.durationSec || 0)} · ${takes} take${takes === 1 ? '' : 's'} · ${fmtBytes(bytes)}</div>
             <div class="sc-chips">${chips || '<span class="sc-meta">no cameras</span>'}</div>
           </div><button class="act primary sess-preview" data-idx="${i}">${ICON.play} Preview</button>`
           + exportControl(s.sessionId, s.name, i, exports)
@@ -853,7 +901,7 @@
       function renderTab() {
         tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === active));
         if (active === 'sessions') {
-          body.innerHTML = renderSessionsTab(data.sess, sessCam, data.exports);
+          body.innerHTML = renderSessionsTab(data.sess, sessCam, data.exports, data.recCams);
           body.querySelectorAll('.clip-subtab').forEach((b) =>
             b.addEventListener('click', () => { sessCam = b.dataset.cam; renderTab(); }));
           body.querySelectorAll('.sess-preview').forEach((b) =>
@@ -863,7 +911,7 @@
           body.querySelectorAll('.sess-bundle').forEach((b) =>
             b.addEventListener('click', () => saveBundleToFolder(data.sess[Number(b.dataset.idx)], b)));
           body.querySelectorAll('.sess-bundle-as').forEach((b) =>
-            b.addEventListener('click', () => saveBundleAs(data.sess[Number(b.dataset.idx)], b.dataset.fn)));
+            b.addEventListener('click', () => saveBundleAs(data.sess[Number(b.dataset.idx)], b.dataset.fn, b)));
           body.querySelectorAll('.sess-export').forEach((b) =>
             b.addEventListener('click', async () => {
               const sid = data.sess[Number(b.dataset.idx)].sessionId;
