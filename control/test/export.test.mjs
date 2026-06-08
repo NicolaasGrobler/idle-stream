@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planSegments, planParts, fileForCam, planXfade, sectionAudio, lastErrorLine } from '../exports.mjs';
+import { planSegments, planParts, fileForCam, planXfade, sectionAudio, lastErrorLine, codecForPart } from '../exports.mjs';
 
 test('planSegments: no switches -> one segment on the first camera', () => {
   const s = { durationSec: 10, cameras: [{ id: 'cam1' }, { id: 'cam2' }], switches: [] };
@@ -135,6 +135,20 @@ test('planParts: a camera split by a reconnect stitches both segments with a bla
     { type: 'black', dur: 4 },                                               // 8..12 link down
     { type: 'footage', file: 'b.mp4', clipIn: 0, dur: 8, hasAudio: true },   // 12..20 reconnect
   ]);
+});
+
+test('codecForPart: ultra-short parts force libx264; normal parts keep the hardware codec', () => {
+  // Regression: a hardware encoder (NVENC) can emit ZERO video frames for a
+  // sub-frame segment, yielding an audio-only .ts; as the concat-copy stitch
+  // templates stream layout on the first segment, that drops video from the whole
+  // export. Short parts (black alignment fillers, quick double-takes) must fall
+  // back to libx264, which reliably produces at least one frame.
+  assert.equal(codecForPart(0.072, 'h264_nvenc'), 'libx264');   // the field-report case
+  assert.equal(codecForPart(0.05, 'h264_nvenc'), 'libx264');    // smallest part planParts emits
+  assert.equal(codecForPart(0.49, 'h264_qsv'), 'libx264');      // just under the threshold
+  assert.equal(codecForPart(0.5, 'h264_nvenc'), 'h264_nvenc');  // at/over the threshold: hardware
+  assert.equal(codecForPart(120, 'h264_nvenc'), 'h264_nvenc');
+  assert.equal(codecForPart(0.01, 'libx264'), 'libx264');       // already software: unchanged
 });
 
 test('fileForCam: picks the largest clip (bulk footage) inside the session mtime window', () => {

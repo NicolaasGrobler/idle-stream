@@ -34,6 +34,21 @@ const OUT_W = 1920, OUT_H = 1080, FPS = 30, AR = 48000;
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 const round3 = (x) => Math.round(x * 1000) / 1000;
 
+// Below this part length, force the software encoder regardless of the detected
+// hardware one. Hardware H.264 encoders (notably NVENC) can emit ZERO video
+// frames for an ultra-short clip — their internal encode delay/lookahead swallows
+// a sub-~0.15s segment whole, producing an audio-only .ts. The final stitch is a
+// concat-demuxer copy that takes its stream layout from the FIRST segment, so a
+// single video-less segment at the head silently drops video from the ENTIRE
+// export (audio-only output). Tiny segments (black alignment fillers, quick
+// double-takes) are trivial to encode, so libx264 — which reliably produces at
+// least one frame down to a single-frame clip — handles them at negligible cost.
+// Mixed encoders concat cleanly: the TS intermediates carry in-band SPS/PPS.
+const MIN_HW_SEG_S = 0.5;
+// The encoder for one render part: the detected (possibly hardware) codec for
+// normal-length parts, libx264 for very short ones. Pure — unit-tested.
+export const codecForPart = (durSec, vcodec) => (durSec < MIN_HW_SEG_S ? 'libx264' : vcodec);
+
 // Prefer the downloaded static build; fall back to a PATH binary.
 const toolPath = (name) => (existsSync(join(TOOLS, name + exe)) ? join(TOOLS, name + exe) : name);
 const ffmpegPath = () => toolPath('ffmpeg');
@@ -224,7 +239,7 @@ function xfadeArgs(parts, segName, plan, out, vcodec) {
 function ffprobe(file) {
   return new Promise((resolve) => {
     execFile(ffprobePath(), ['-v', 'error', '-show_entries', 'format=duration', '-show_entries', 'stream=codec_type', '-of', 'json', file],
-      { timeout: 15000 }, (err, stdout) => {
+      { timeout: 15000, windowsHide: true }, (err, stdout) => {
         if (err) return resolve({ dur: 0, hasAudio: false });
         try {
           const j = JSON.parse(stdout);
@@ -317,7 +332,7 @@ function testEncoder(ff, enc) {
 const VF = `scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease,pad=${OUT_W}:${OUT_H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS}`;
 
 function partArgs(part, out, vcodec) {
-  const ENC = encForTs(vcodec);
+  const ENC = encForTs(codecForPart(part.dur, vcodec));
   // ----- simple path (no audio routing): byte-identical to before, concat-copies -----
   if (!part.audio) {
     if (part.type === 'black') {
