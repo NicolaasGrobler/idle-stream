@@ -476,6 +476,28 @@ export function startExport(session, opts = {}) {
   return job;
 }
 
+// Render one part to file `seg` under `work`. A footage clip can be corrupt — a
+// low-res reconnect fragment whose video stream has no decodable frames (ffmpeg:
+// "Cannot determine format ... after EOF" → "Conversion failed!"). The angle
+// export renders every clip of every camera, so it hits clips the program export
+// never touches; rather than aborting the whole render, substitute black of the
+// same duration so the track stays aligned and complete. A failing BLACK render
+// still throws — distinguishing "this clip is bad" (black works) from "the encoder
+// is bad" (black fails too). Returns false when it fell back to black.
+async function renderPart(ff, part, seg, work, vcodec) {
+  const wrote = () => { const st = existsSync(join(work, seg)) ? statSync(join(work, seg)) : null; return !!(st && st.size > 0); };
+  if (part.type === 'footage') {
+    try {
+      await run(ff, partArgs(part, seg, vcodec), work);
+      if (wrote()) return true;
+    } catch { /* corrupt/undecodable clip — fall through to black */ }
+    console.error(`export: clip render failed (${part.file}); substituting ${part.dur}s black`);
+  }
+  await run(ff, partArgs(part.type === 'footage' ? { type: 'black', dur: part.dur } : part, seg, vcodec), work);
+  if (!wrote()) throw new Error(`render produced no data (${part.dur}s) — the ${vcodec} encoder may have failed; retry, or set MULTICAM_ENCODER=libx264`);
+  return part.type !== 'footage';
+}
+
 async function runExport(session, job, opts = {}) {
   mkdirSync(EXPORTS, { recursive: true });
   // Build the intermediate .ts segments in the OS temp dir, NOT inside the app
@@ -497,15 +519,8 @@ async function runExport(session, job, opts = {}) {
     const segPaths = [];
     for (let i = 0; i < parts.length; i++) {
       const seg = segName(i);
-      await run(ff, partArgs(parts[i], seg, vcodec), work);
-      // Fail fast (and clearly) if the encoder produced nothing — far better than a
-      // cryptic concat error many segments later.
-      const segPath = join(work, seg);
-      const st = existsSync(segPath) ? statSync(segPath) : null;
-      if (!st || st.size === 0) {
-        throw new Error(`render produced no data for segment ${i + 1}/${parts.length} — the ${vcodec} encoder may have failed; retry, or set MULTICAM_ENCODER=libx264`);
-      }
-      segPaths.push(segPath);
+      await renderPart(ff, parts[i], seg, work, vcodec);   // corrupt clip -> black, not a hard fail
+      segPaths.push(join(work, seg));
       job.progress = round3((i + 1) / (parts.length + 1));   // leave headroom for the final pass
     }
     const out = join(EXPORTS, `${session.sessionId}.mp4`);
@@ -583,11 +598,8 @@ async function runAngleExport(session, job) {
       const segPaths = [];
       for (let i = 0; i < parts.length; i++) {
         const seg = segName(i);
-        await run(ff, partArgs(parts[i], seg, vcodec), work);
-        const segPath = join(work, seg);
-        const st = existsSync(segPath) ? statSync(segPath) : null;
-        if (!st || st.size === 0) throw new Error(`render produced no data for ${cam.label || cam.id} segment ${i + 1}/${parts.length}`);
-        segPaths.push(segPath);
+        await renderPart(ff, parts[i], seg, work, vcodec);   // corrupt clip -> black, not a hard fail
+        segPaths.push(join(work, seg));
         done++; job.progress = round3(done / totalUnits);
       }
       // Unique, filesystem-safe filename per camera (label first, id on collision).
