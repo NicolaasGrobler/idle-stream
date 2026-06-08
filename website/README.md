@@ -6,10 +6,10 @@ app code stay in lockstep — same versioning, same PRs, same review.
 
 The site is deliberately small: a single page (`src/pages/index.astro`)
 composed of the components in `src/components/`, with Tailwind CSS v4 via the
-`@tailwindcss/vite` plugin. The "Download" button always points at the latest
-published Windows installer through GitHub's
-`/releases/latest/download/<asset>` redirect — see [`src/config.ts`](src/config.ts)
-for the single source of truth on repo + download links.
+`@tailwindcss/vite` plugin. The "Download" button points at the latest
+published Windows installer asset, resolved at build time from the GitHub
+Releases API by `getLatestRelease()` in [`src/config.ts`](src/config.ts) — the
+single source of truth on repo + download links.
 
 ## Develop
 

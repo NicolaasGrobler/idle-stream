@@ -490,7 +490,7 @@ def build():
     # STEP 1
     s1 = [
         Paragraph(
-            f'Download {chip("WirelessMulticamStudio-Setup.exe")} (from the website&#8217;s '
+            f'Download the {chip("WirelessMulticamStudio-Setup")} installer (from the website&#8217;s '
             f'{chip("Download")} button or the GitHub Releases page) and run it.',
             styles["body"]),
         Paragraph(
