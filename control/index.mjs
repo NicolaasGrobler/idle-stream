@@ -18,6 +18,7 @@ import * as switchesStore from './switches.mjs';
 import * as recordingsStore from './recordings.mjs';
 import * as assignmentsStore from './assignments.mjs';
 import * as exportsStore from './exports.mjs';
+import * as editGuide from './editguide.mjs';
 import * as bundleStore from './bundle.mjs';
 import * as settingsStore from './settings.mjs';
 import { serveRangedFile } from './http-range.mjs';
@@ -709,6 +710,45 @@ function handleHttp(svc, req, res) {
       sendJson(res, 200, job ? { status: job.status, progress: job.progress, error: job.error || null, ready: job.status === 'done' } : { status: 'none' });
     } else {
       sendJson(res, 200, exportsStore.getAllJobs());
+    }
+    return;
+  }
+  // ----- Edit guide (per-clip timeline offsets for manual editing) -----
+  if (req.method === 'GET' && (path === '/api/export/editguide' || path === '/api/export/editguide.csv')) {
+    const id = url.searchParams.get('id') ?? '';
+    const session = switchesStore.loadSessions().find((s) => s.sessionId === id);
+    if (!session) { sendJson(res, 404, { error: 'session not found' }); return; }
+    editGuide.buildEditGuide(session).then((g) => {
+      if (path.endsWith('.csv')) {
+        res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${id}-editguide.csv"`, 'cache-control': 'no-store' });
+        res.end(editGuide.editGuideCsv(g));
+      } else {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(editGuide.editGuideHtml(g));
+      }
+    }).catch((e) => sendJson(res, 500, { error: String(e.message || e) }));
+    return;
+  }
+  // ----- Aligned-angle export (one full-length file per camera, for manual edit) -----
+  if (req.method === 'POST' && path === '/api/export/angles') {
+    const id = url.searchParams.get('id') ?? '';
+    const session = switchesStore.loadSessions().find((s) => s.sessionId === id);
+    if (!session) { sendJson(res, 404, { error: 'session not found' }); return; }
+    try {
+      const job = exportsStore.startAngleExport(session);
+      sendJson(res, 202, { status: job.status, progress: job.progress, error: job.error || null });
+    } catch (e) {
+      sendJson(res, 400, { error: String(e.message || e) });
+    }
+    return;
+  }
+  if (req.method === 'GET' && path === '/api/export/angles') {
+    const id = url.searchParams.get('id');
+    if (id) {
+      const job = exportsStore.getAngleJob(id);
+      sendJson(res, 200, job ? { status: job.status, progress: job.progress, error: job.error || null, dir: job.dir || null, files: job.files || [], ready: job.status === 'done' } : { status: 'none' });
+    } else {
+      sendJson(res, 200, exportsStore.getAllAngleJobs());
     }
     return;
   }

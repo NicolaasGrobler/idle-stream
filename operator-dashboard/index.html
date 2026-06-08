@@ -289,6 +289,8 @@
       save: svg('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>'),
       upload: svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
       more: svg('<circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/>', true),
+      list: svg('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'),
+      layers: svg('<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>'),
     };
 
     // While the operator is mid-interaction in the side panel (dropdown open or
@@ -1007,11 +1009,40 @@
           items.push({ icon: ICON.refresh, label: 'Re-export', onClick: () => startExportFlow(s.sessionId, null) });
           items.push({ sep: true });
         }
+        items.push({ icon: ICON.list, label: 'Edit guide (clip timecodes)', onClick: () => window.open(`/api/export/editguide?id=${encodeURIComponent(s.sessionId)}`, '_blank') });
+        items.push({ icon: ICON.layers, label: 'Export angles for editing', onClick: () => exportAngles(s, anchor) });
+        items.push({ sep: true });
         items.push({ icon: ICON.box, label: 'Save bundle to this PC', onClick: () => saveBundleToFolder(s, anchor) });
         items.push({ icon: ICON.upload, label: 'Save bundle to…', onClick: () => saveBundleAs(s, bundleFilename(s.sessionId, name), anchor) });
         items.push({ sep: true });
         items.push({ icon: ICON.trash, label: 'Delete session', danger: true, onClick: () => deleteSession(s, data.recCams, load) });
         showMenu(anchor, items);
+      }
+
+      // Render one full-length aligned track per camera (footage at its offsets,
+      // gaps black) so they all start at 0 and stay in sync on separate NLE tracks
+      // — the fix for hand-editing a session with dropouts. Long render; progress
+      // shows on the ⋯ button, and the result modal gives the output folder path.
+      async function exportAngles(s, anchor) {
+        const busy = busyButton(anchor, 'Rendering angles…');
+        try {
+          const res = await fetch(`/api/export/angles?id=${encodeURIComponent(s.sessionId)}`, { method: 'POST' });
+          const j0 = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(j0.error || `HTTP ${res.status}`);
+          for (;;) {
+            await new Promise((r) => setTimeout(r, 1500));
+            const j = await fetch(`/api/export/angles?id=${encodeURIComponent(s.sessionId)}`).then((r) => r.json());
+            if (j.status === 'running') { busy.set(`Rendering angles ${Math.round((j.progress || 0) * 100)}%`); continue; }
+            if (j.status === 'error') throw new Error(j.error || 'render failed');
+            const list = (j.files || []).map((f) => `• ${f.name}`).join('\n');
+            await showModal({ title: 'Angle tracks ready', message: `${(j.files || []).length} aligned angle file(s) written to:\n${j.dir}\n\n${list}\n\nIn CapCut: drop them onto separate tracks and snap each to 0:00 — they're full session length, so they stay in sync. Then cut between angles.`, confirmLabel: 'OK' });
+            break;
+          }
+        } catch (e) {
+          await showModal({ title: 'Angle export failed', message: String(e.message || e), confirmLabel: 'OK' });
+        } finally {
+          busy.done();
+        }
       }
 
       function renderTab() {

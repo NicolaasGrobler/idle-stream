@@ -5,7 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planSegments, planParts, fileForCam, planXfade, sectionAudio, lastErrorLine, codecForPart } from '../exports.mjs';
+import { planSegments, planParts, fileForCam, planXfade, sectionAudio, lastErrorLine, codecForPart, planCameraParts } from '../exports.mjs';
+import { editGuideCsv } from '../editguide.mjs';
 
 test('planSegments: no switches -> one segment on the first camera', () => {
   const s = { durationSec: 10, cameras: [{ id: 'cam1' }, { id: 'cam2' }], switches: [] };
@@ -149,6 +150,45 @@ test('codecForPart: ultra-short parts force libx264; normal parts keep the hardw
   assert.equal(codecForPart(0.5, 'h264_nvenc'), 'h264_nvenc');  // at/over the threshold: hardware
   assert.equal(codecForPart(120, 'h264_nvenc'), 'h264_nvenc');
   assert.equal(codecForPart(0.01, 'libx264'), 'libx264');       // already software: unchanged
+});
+
+test('planCameraParts: a single clip covering the session -> one footage part', () => {
+  const segs = [{ file: 'a.mp4', dur: 30, hasAudio: true, start: 0 }];
+  assert.deepEqual(planCameraParts({ durationSec: 10 }, segs), [
+    { type: 'footage', file: 'a.mp4', clipIn: 0, dur: 10, hasAudio: true },
+  ]);
+});
+
+test('planCameraParts: late start + early end -> black head, footage, black tail', () => {
+  const segs = [{ file: 'a.mp4', dur: 5, hasAudio: false, start: 3 }];   // footage covers 3..8
+  assert.deepEqual(planCameraParts({ durationSec: 20 }, segs), [
+    { type: 'black', dur: 3 },
+    { type: 'footage', file: 'a.mp4', clipIn: 0, dur: 5, hasAudio: false },
+    { type: 'black', dur: 12 },
+  ]);
+});
+
+test('planCameraParts: a reconnect gap is filled black between the two clips', () => {
+  const segs = [
+    { file: 'a.mp4', dur: 8, hasAudio: true, start: 0 },    // 0..8
+    { file: 'b.mp4', dur: 8, hasAudio: true, start: 12 },   // 12..20
+  ];
+  assert.deepEqual(planCameraParts({ durationSec: 20 }, segs), [
+    { type: 'footage', file: 'a.mp4', clipIn: 0, dur: 8, hasAudio: true },
+    { type: 'black', dur: 4 },
+    { type: 'footage', file: 'b.mp4', clipIn: 0, dur: 8, hasAudio: true },
+  ]);
+});
+
+test('planCameraParts: no footage -> all black for the whole session', () => {
+  assert.deepEqual(planCameraParts({ durationSec: 8 }, []), [{ type: 'black', dur: 8 }]);
+});
+
+test('editGuideCsv: header + a row with timecode-formatted offsets', () => {
+  const csv = editGuideCsv({ rows: [{ label: 'Cam A', kind: 'video', idx: 1, start: 65.5, dur: 10, end: 75.5, name: 'x.mp4', path: '/r/x.mp4' }] });
+  const lines = csv.split('\r\n');
+  assert.match(lines[0], /^"Camera","Kind","Clip #","Start \(TC\)"/);
+  assert.match(lines[1], /^"Cam A","video","1","00:01:05\.500","00:01:05:15","65\.500","10\.000","00:01:15\.500","x\.mp4","\/r\/x\.mp4"$/);
 });
 
 test('fileForCam: picks the largest clip (bulk footage) inside the session mtime window', () => {

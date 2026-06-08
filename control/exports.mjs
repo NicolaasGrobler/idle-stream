@@ -197,6 +197,36 @@ export function planParts(session, clips) {
   return parts;
 }
 
+// Parts for ONE camera's continuous angle track spanning the WHOLE session
+// [0, durationSec]: its clips dropped at their offsets, every gap (pre-roll,
+// dropout, reconnect, tail) filled black. Unlike planParts (which follows the
+// switch log to make the program), this keeps a single source running the entire
+// length — so the aligned-angle export produces one full-length file per camera
+// that all start at session-zero, making manual multi-cam editing a matter of
+// stacking tracks and cutting. Pure (no ffmpeg); each part carries the camera's
+// own audio (or silence under black). Mirrors planParts' footage/black walk.
+export function planCameraParts(session, camSegs) {
+  const dur = session.durationSec || 0;
+  const parts = [];
+  const segs = (camSegs || [])
+    .filter((c) => c.file && c.dur > 0)
+    .slice()
+    .sort((a, b) => a.start - b.start);
+  let cursor = 0;
+  for (const c of segs) {
+    const availStart = Math.max(cursor, c.start);
+    const availEnd = Math.min(dur, c.start + c.dur);
+    if (availEnd - availStart > 0.05) {
+      if (availStart - cursor > 0.05) parts.push({ type: 'black', dur: round3(availStart - cursor) });
+      parts.push({ type: 'footage', file: c.file, clipIn: round3(availStart - c.start), dur: round3(availEnd - availStart), hasAudio: !!c.hasAudio });
+      cursor = availEnd;
+    }
+    if (cursor >= dur - 0.05) break;
+  }
+  if (dur - cursor > 0.05) parts.push({ type: 'black', dur: round3(dur - cursor) });
+  return parts;
+}
+
 // Plan a crossfade chain over the rendered parts. Pure (no ffmpeg) so the offset
 // math is unit-tested. xfade/acrossfade overlap each consecutive pair by the fade
 // duration, so the program shrinks by (N-1)*fade. Returns null when crossfade
@@ -254,7 +284,7 @@ function ffprobe(file) {
 // Resolve + probe every clip per camera in the session, as ordered segments on
 // the session timeline. A reconnect splits a camera into multiple files; each
 // becomes a segment, placed by its own start time so gaps render as black.
-async function buildClips(session) {
+export async function buildClips(session) {
   const recCams = listRecordings();
   const sessionStart = session.startedAt || 0;
   const clips = {};
@@ -499,6 +529,87 @@ async function runExport(session, job, opts = {}) {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+// ----- Aligned-angle export (one full-length file per camera, for manual edit) --
+// Renders every camera as its own session-length track (footage at offsets, gaps
+// black) so they all start at 0 and stay in sync when dropped onto separate NLE
+// tracks — the fix for hand-editing a session with dropouts/reconnects. Files land
+// in exports/<sessionId>-angles/ ON THIS MACHINE (the editor runs here), so the
+// job returns the folder path rather than streaming anything back.
+const angleJobs = new Map();   // sessionId -> { status, progress, error, dir, files }
+export const getAngleJob = (id) => angleJobs.get(id) || null;
+export function getAllAngleJobs() {
+  const out = {};
+  for (const [id, j] of angleJobs) out[id] = { status: j.status, progress: j.progress, error: j.error || null, dir: j.dir || null, files: j.files || [], ready: j.status === 'done' };
+  return out;
+}
+
+const safeName = (s, fallback) => (String(s).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || fallback);
+
+export function startAngleExport(session) {
+  const id = session && session.sessionId;
+  if (!SAFE_ID.test(id || '')) throw new Error('bad session id');
+  const existing = angleJobs.get(id);
+  if (existing && existing.status === 'running') return existing;
+  const job = { status: 'running', progress: 0, error: null, dir: null, files: [] };
+  angleJobs.set(id, job);
+  runAngleExport(session, job).catch((e) => { job.status = 'error'; job.error = String(e.message || e); });
+  return job;
+}
+
+async function runAngleExport(session, job) {
+  const outDir = join(EXPORTS, `${session.sessionId}-angles`);
+  mkdirSync(outDir, { recursive: true });
+  const vcodec = await detectVideoEncoder();
+  const clips = await buildClips(session);
+  // v1: video angles only (a mic clip has no video stream for the footage path).
+  const plans = (session.cameras || [])
+    .filter((c) => (c.kind || 'video') !== 'audio' && clips[c.id])
+    .map((c) => ({ cam: c, parts: planCameraParts(session, clips[c.id].segs) }))
+    .filter((p) => p.parts.length);
+  if (!plans.length) throw new Error('no camera footage to export as angles');
+  const totalUnits = plans.reduce((n, p) => n + p.parts.length + 1, 0);   // +1 concat per camera
+  let done = 0;
+  const ff = ffmpegPath();
+  const files = [];
+  const usedNames = new Set();
+  for (const { cam, parts } of plans) {
+    const work = join(tmpdir(), `multicam-angle-${session.sessionId}-${cam.id}-${randomBytes(4).toString('hex')}`);
+    rmSync(work, { recursive: true, force: true });
+    mkdirSync(work, { recursive: true });
+    try {
+      const segName = (i) => `seg${String(i).padStart(4, '0')}.ts`;
+      const segPaths = [];
+      for (let i = 0; i < parts.length; i++) {
+        const seg = segName(i);
+        await run(ff, partArgs(parts[i], seg, vcodec), work);
+        const segPath = join(work, seg);
+        const st = existsSync(segPath) ? statSync(segPath) : null;
+        if (!st || st.size === 0) throw new Error(`render produced no data for ${cam.label || cam.id} segment ${i + 1}/${parts.length}`);
+        segPaths.push(segPath);
+        done++; job.progress = round3(done / totalUnits);
+      }
+      // Unique, filesystem-safe filename per camera (label first, id on collision).
+      let base = safeName(cam.label || cam.id, cam.id);
+      if (usedNames.has(base.toLowerCase())) base = `${base}_${cam.id}`;
+      usedNames.add(base.toLowerCase());
+      const out = join(outDir, `${base}.mp4`);
+      rmSync(out, { force: true });
+      await ensureReadable(segPaths);
+      const listPath = join(work, 'list.txt');
+      writeFileSync(listPath, segPaths.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n'));
+      await run(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', out], work);
+      done++; job.progress = round3(done / totalUnits);
+      files.push({ cam: cam.id, label: cam.label || cam.id, file: out, name: `${base}.mp4` });
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }
+  job.dir = outDir;
+  job.files = files;
+  job.progress = 1;
+  job.status = 'done';
 }
 
 // Stream the finished export with HTTP Range (so the dashboard can download or
