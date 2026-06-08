@@ -1,7 +1,9 @@
 ---
-import { GITHUB_URL, DOWNLOAD_URL, getStarCount, formatStars } from "../config";
+import { GITHUB_URL, getStarCount, formatStars, getLatestRelease } from "../config";
 
 const stars = await getStarCount();
+const release = await getLatestRelease();
+const downloadHref = release?.downloadUrl ?? `${GITHUB_URL}/releases/latest`;
 
 // The cameras shown in the live grid. `file` is the looping clip in
 // public/feeds/. Six tiles => keys 1–6 take to air.
@@ -38,7 +40,7 @@ const logSlots = 5;
     </p>
 
     <div class="oh-cta">
-      <a href={DOWNLOAD_URL} class="oh-btn oh-btn-go">
+      <a href={downloadHref} class="oh-btn oh-btn-go">
         Download for Windows
         <span aria-hidden="true">↓</span>
       </a>
@@ -48,6 +50,7 @@ const logSlots = 5;
         {stars !== null && stars > 0 && <span class="oh-stars">★ {formatStars(stars)}</span>}
       </a>
     </div>
+    {release && <p class="oh-ver">Latest release v{release.version} · Free · Windows 10/11</p>}
 
     <!-- ─── The live operator dashboard (a real, playable demo) ─── -->
     <figure class="oh-fig" data-switcher>
@@ -208,6 +211,7 @@ const logSlots = 5;
   .oh-btn-ghost:hover .oh-btn-arrow { transform: translateX(3px); }
   .oh-stars { color: #8b929c; font-weight: 500; margin-left: 2px; }
   .oh-btn:focus-visible { outline: 2px solid #4ade80; outline-offset: 3px; }
+  .oh-ver { margin: 12px 0 0; font-size: 13px; color: #8b929c; font-variant-numeric: tabular-nums; }
 
   /* ─── The dashboard window ───────────────────────────────────────────── */
   /* Full content-column width so its edges line up with the headline + CTAs. */

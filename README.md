@@ -101,8 +101,8 @@ a specific address: `npm run up -- --ip 10.0.0.5`.
 
 ### Windows installer (optional)
 
-For a no-Node, double-click experience, grab **`WirelessMulticamStudio-Setup.exe`**
-from the latest [GitHub Release](https://github.com/openidle-dev/idle-stream/releases/latest).
+For a no-Node, double-click experience, grab the **`WirelessMulticamStudio-Setup-<version>.exe`**
+installer from the latest [GitHub Release](https://github.com/openidle-dev/idle-stream/releases/latest).
 It's built in CI on every `v*` tag and ships everything offline (launcher +
 tools + assets + writable dirs), with Start Menu / desktop shortcuts and a
 one-time HTTPS-cert setup step.
@@ -114,7 +114,7 @@ Prefer to build it yourself? You'll need the native tools first:
 
 ```bash
 npm run setup            # once: make sure tools/ has mkcert + mediamtx + ffmpeg
-npm run build:installer  # -> dist/WirelessMulticamStudio-Setup.exe  (Windows, ~300 MB, fully offline)
+npm run build:installer  # -> dist/WirelessMulticamStudio-Setup-<version>.exe  (Windows, ~300 MB, fully offline)
 ```
 
 The installer installs to `Documents\Wireless Multicam Studio` and adds

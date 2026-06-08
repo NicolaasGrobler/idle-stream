@@ -1,4 +1,4 @@
-// Build the Windows installer: WirelessMulticamStudio-Setup.exe.
+// Build the Windows installer: WirelessMulticamStudio-Setup-<version>.exe.
 //
 // Bundles the launcher exe + web assets + MediaMTX config + the native tools
 // (mkcert, mediamtx, ffmpeg, ffprobe) into one Inno Setup installer that lays
@@ -6,7 +6,7 @@
 // the writable runtime dirs, and offers the one-time HTTPS cert setup. Fully
 // offline once built (no internet needed on the target).
 //
-//   node build/build-installer.mjs        # -> dist/WirelessMulticamStudio-Setup.exe
+//   node build/build-installer.mjs        # -> dist/WirelessMulticamStudio-Setup-<version>.exe
 import innosetup from 'innosetup-compiler';
 import pngToIco from 'png-to-ico';
 import { execFileSync } from 'node:child_process';
@@ -23,6 +23,10 @@ const APP_ID = '{{B3F1B8E2-7C4A-4E9D-9B1F-1A2C3D4E5F60}'; // stable -> upgrades/
 // Version comes from package.json (single source of truth) — was hardcoded and
 // went stale, so installers shipped with the wrong AppVersion in the title bar.
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
+// The installer filename carries the version so a downloaded file is self-
+// identifying. Defined once and reused for OutputBaseFilename and the success
+// log below so the two can't drift.
+const INSTALLER_BASENAME = `WirelessMulticamStudio-Setup-${VERSION}`;
 
 if (process.platform !== 'win32') {
   console.error('The installer build is Windows-only (Inno Setup).');
@@ -65,7 +69,7 @@ DisableProgramGroupPage=yes
 ; never synced. (Existing OneDrive installs must be uninstalled + reinstalled.)
 PrivilegesRequired=lowest
 OutputDir=${DIST}
-OutputBaseFilename=WirelessMulticamStudio-Setup
+OutputBaseFilename=${INSTALLER_BASENAME}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -138,5 +142,5 @@ console.log('Compiling installer (packs ~0.5 GB of tools; this takes a while)...
 await new Promise((resolve, reject) => {
   innosetup(ISS, { gui: false, verbose: false }, (err) => (err ? reject(err) : resolve()));
 });
-console.log(`\nInstaller ready -> ${join(DIST, 'WirelessMulticamStudio-Setup.exe')}`);
+console.log(`\nInstaller ready -> ${join(DIST, `${INSTALLER_BASENAME}.exe`)}`);
 process.exit(0);

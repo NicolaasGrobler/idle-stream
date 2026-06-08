@@ -1,5 +1,8 @@
 ---
-import { GITHUB_URL, DOWNLOAD_URL } from "../config";
+import { GITHUB_URL, getLatestRelease } from "../config";
+
+const release = await getLatestRelease();
+const downloadHref = release?.downloadUrl ?? `${GITHUB_URL}/releases/latest`;
 ---
 
 <section class="relative border-t border-[#1d1f24] bg-[#0a0a0a] overflow-hidden" data-cta>
@@ -30,7 +33,7 @@ import { GITHUB_URL, DOWNLOAD_URL } from "../config";
 
     <div class="mt-10 flex flex-col sm:flex-row gap-x-6 gap-y-4 justify-center items-center">
       <a
-        href={DOWNLOAD_URL}
+        href={downloadHref}
         class="inline-flex items-center gap-2 rounded-lg bg-[#16a34a] px-6 py-3.5 text-[15px] font-semibold text-white hover:bg-[#15913f] transition-colors"
       >
         Download for Windows
@@ -44,6 +47,11 @@ import { GITHUB_URL, DOWNLOAD_URL } from "../config";
         <span aria-hidden="true" class="transition-transform group-hover:translate-x-1">→</span>
       </a>
     </div>
+    {release && (
+      <p class="mt-5 text-[13px] text-[#8b929c] tabular-nums">
+        Latest release v{release.version} · Free · Windows 10/11
+      </p>
+    )}
   </div>
 </section>
 
