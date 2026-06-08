@@ -65,7 +65,7 @@ DisableProgramGroupPage=yes
 ; never synced. (Existing OneDrive installs must be uninstalled + reinstalled.)
 PrivilegesRequired=lowest
 OutputDir=${DIST}
-OutputBaseFilename=WirelessMulticamStudio-Setup
+OutputBaseFilename=WirelessMulticamStudio-Setup-${VERSION}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
